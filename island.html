@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>DeepSeek V4.1 - 3D 漂浮岛屿</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; font-family: sans-serif; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 20px; z-index: 100; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+<div id="loading">加载中...</div>
+<!-- 引入 Three.js 核心库和控制器 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+    // ==========================================
+    // 1. 基础环境设置
+    // ==========================================
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x87CEEB, 0.015); // 雾效，让云海更柔和
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(20, 15, 25);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+    document.getElementById('loading').style.display = 'none';
+
+    // 鼠标交互控制器
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.maxPolarAngle = Math.PI / 2 - 0.05; // 禁止看到地底
+    controls.minDistance = 10;
+    controls.maxDistance = 50;
+    controls.target.set(0, 5, 0);
+
+    // ==========================================
+    // 2. 光影系统（支持日夜切换）
+    // ==========================================
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+
+    const sunLight = new THREE.DirectionalLight(0xffeedd, 1);
+    sunLight.position.set(20, 30, 20);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    scene.add(sunLight);
+
+    // 月光/补光
+    const moonLight = new THREE.DirectionalLight(0x88aaff, 0);
+    moonLight.position.set(-20, 20, -20);
+    scene.add(moonLight);
+
+    // ==========================================
+    // 3. 材质库 (Low-Poly 风格)
+    // ==========================================
+    const matRock = new THREE.MeshStandardMaterial({ color: 0x6b5b45, flatShading: true });
+    const matGrass = new THREE.MeshStandardMaterial({ color: 0x5c9e38, flatShading: true });
+    const matWood = new THREE.MeshStandardMaterial({ color: 0x8B5A2B, flatShading: true });
+    const matRoof = new THREE.MeshStandardMaterial({ color: 0x4a3b2c, flatShading: true });
+    const matWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true });
+    const matWater = new THREE.MeshStandardMaterial({ color: 0x4aa3df, transparent: true, opacity: 0.8, flatShading: true });
+
+    // ==========================================
+    // 4. 构建岛屿
+    // ==========================================
+    const islandGroup = new THREE.Group();
+    scene.add(islandGroup);
+
+    // 底层岩石 (倒圆锥)
+    const rockGeo = new THREE.ConeGeometry(8, 12, 9);
+    rockGeo.rotateX(Math.PI);
+    const rock = new THREE.Mesh(rockGeo, matRock);
+    rock.position.y = -6;
+    rock.receiveShadow = true;
+    rock.castShadow = true;
+    islandGroup.add(rock);
+
+    // 顶层草地
+    const grassGeo = new THREE.CylinderGeometry(8, 8, 1, 9);
+    const grass = new THREE.Mesh(grassGeo, matGrass);
+    grass.position.y = 0;
+    grass.receiveShadow = true;
+    islandGroup.add(grass);
+
+    // 中间小溪/水潭
+    const waterGeo = new THREE.PlaneGeometry(3, 8);
+    waterGeo.rotateX(-Math.PI / 2);
+    const water = new THREE.Mesh(waterGeo, matWater);
+    water.position.set(-4, 0.51, 0);
+    islandGroup.add(water);
+
+    // 瀑布粒子系统
+    const waterfallParticles = new THREE.BufferGeometry();
+    const wfCount = 200;
+    const wfPositions = new Float32Array(wfCount * 3);
+    for (let i = 0; i < wfCount * 3; i += 3) {
+        wfPositions[i] = -5.5 + (Math.random() - 0.5) * 1.5; // X
+        wfPositions[i + 1] = Math.random() * -12; // Y (向下)
+        wfPositions[i + 2] = 4 + (Math.random() - 0.5) * 1.5; // Z
+    }
+    waterfallParticles.setAttribute('position', new THREE.BufferAttribute(wfPositions, 3));
+    const waterfallMat = new THREE.PointsMaterial({ color: 0x99ccff, size: 0.3, transparent: true, opacity: 0.8 });
+    const waterfall = new THREE.Points(waterfallParticles, waterfallMat);
+    islandGroup.add(waterfall);
+
+    // ==========================================
+    // 5. 构建建筑与植物
+    // ==========================================
+    
+    // 大树
+    const treeGroup = new THREE.Group();
+    const trunkGeo = new THREE.CylinderGeometry(0.8, 1.5, 8, 6);
+    const trunk = new THREE.Mesh(trunkGeo, matWood);
+    trunk.position.y = 4;
+    trunk.castShadow = true;
+    treeGroup.add(trunk);
+
+    const leavesGeo = new THREE.IcosahedronGeometry(4.5, 0);
+    const leavesMat = new THREE.MeshStandardMaterial({ color: 0x3a7d28, flatShading: true });
+    const leaves = new THREE.Mesh(leavesGeo, leavesMat);
+    leaves.position.y = 9;
+    leaves.castShadow = true;
+    treeGroup.add(leaves);
+    treeGroup.position.set(2, 0.5, -2);
+    islandGroup.add(treeGroup);
+
+    // 房子生成器
+    function createHouse(x, z, scale) {
+        const house = new THREE.Group();
+        // 墙体
+        const body = new THREE.Mesh(new THREE.BoxGeometry(3, 2.5, 3), matWhite);
+        body.position.y = 1.25;
+        body.castShadow = true;
+        body.receiveShadow = true;
+        house.add(body);
+        // 屋顶
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(2.8, 1.5, 4), matRoof);
+        roof.position.y = 3.25;
+        roof.rotation.y = Math.PI / 4;
+        roof.castShadow = true;
+        house.add(roof);
+        // 窗户发光体 (夜晚亮)
+        const windowMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
+        const win1 = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8), windowMat);
+        win1.position.set(0, 1.5, 1.51);
+        house.add(win1);
+        
+        house.position.set(x, 0.5, z);
+        house.scale.set(scale, scale, scale);
+        return house;
+    }
+
+    const house1 = createHouse(-2, 2, 1);
+    const house2 = createHouse(3, 4, 0.8);
+    islandGroup.add(house1, house2);
+
+    // 风车
+    const windmillGroup = new THREE.Group();
+    const wBody = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.5, 4, 8), matWhite);
+    wBody.position.y = 2;
+    wBody.castShadow = true;
+    windmillGroup.add(wBody);
+    
+    const wRoof = new THREE.Mesh(new THREE.ConeGeometry(1.5, 1.5, 8), matRoof);
+    wRoof.position.y = 4.75;
+    windmillGroup.add(wRoof);
+
+    const blades = new THREE.Group();
+    const bladeGeo = new THREE.BoxGeometry(0.3, 4, 0.1);
+    for(let i=0; i<4; i++){
+        const blade = new THREE.Mesh(bladeGeo, matWood);
+        blade.position.y = 2;
+        blade.rotation.z = (Math.PI / 2) * i;
+        blades.add(blade);
+    }
+    blades.position.set(0, 4, 1.6);
+    windmillGroup.add(blades);
+    
+    windmillGroup.position.set(5, 0.5, -1);
+    windmillGroup.rotation.y = -Math.PI / 4;
+    islandGroup.add(windmillGroup);
+
+    // ==========================================
+    // 6. 云海 (底部与天空)
+    // ==========================================
+    function createCloud(x, y, z) {
+        const cloudGroup = new THREE.Group();
+        const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true });
+        for(let i=0; i<4; i++) {
+            const size = 1.5 + Math.random() * 2;
+            const p = new THREE.Mesh(new THREE.IcosahedronGeometry(size, 0), cloudMat);
+            p.position.set((Math.random()-0.5)*4, (Math.random()-0.5)*2, (Math.random()-0.5)*4);
+            cloudGroup.add(p);
+        }
+        cloudGroup.position.set(x, y, z);
+        return cloudGroup;
+    }
+
+    const clouds = [];
+    // 底部云海
+    for(let i=0; i<40; i++) {
+        const x = (Math.random() - 0.5) * 80;
+        const z = (Math.random() - 0.5) * 80;
+        const y = -12 - Math.random() * 5;
+        const c = createCloud(x, y, z);
+        c.scale.setScalar(1.5 + Math.random());
+        scene.add(c);
+        clouds.push(c);
+    }
+    // 悬浮小云
+    for(let i=0; i<5; i++) {
+        const c = createCloud((Math.random()-0.5)*30, 12 + Math.random()*5, (Math.random()-0.5)*30);
+        c.scale.setScalar(0.5);
+        scene.add(c);
+        clouds.push(c);
+    }
+
+    // ==========================================
+    // 7. 粒子系统 (星空 & 萤火虫)
+    // ==========================================
+    // 星空
+    const starsGeo = new THREE.BufferGeometry();
+    const starsCount = 800;
+    const starsPos = new Float32Array(starsCount * 3);
+    for(let i=0; i<starsCount*3; i+=3) {
+        starsPos[i] = (Math.random() - 0.5) * 200;
+        starsPos[i+1] = Math.random() * 100;
+        starsPos[i+2] = (Math.random() - 0.5) * 200;
+    }
+    starsGeo.setAttribute('position', new THREE.BufferAttribute(starsPos, 3));
+    const starsMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.8, transparent: true, opacity: 0 });
+    const stars = new THREE.Points(starsGeo, starsMat);
+    scene.add(stars);
+
+    // 萤火虫 (夜间发光粒子)
+    const firefliesGeo = new THREE.BufferGeometry();
+    const ffCount = 100;
+    const ffPos = new Float32Array(ffCount * 3);
+    const ffData = []; // 保存初始位置用于做圆周运动
+    for(let i=0; i<ffCount*3; i+=3) {
+        const x = (Math.random() - 0.5) * 16;
+        const y = Math.random() * 10 + 1;
+        const z = (Math.random() - 0.5) * 16;
+        ffPos[i] = x; ffPos[i+1] = y; ffPos[i+2] = z;
+        ffData.push({ x, y, z, speed: 0.5 + Math.random() });
+    }
+    firefliesGeo.setAttribute('position', new THREE.BufferAttribute(ffPos, 3));
+    const ffMat = new THREE.PointsMaterial({ color: 0xffdd44, size: 0.4, transparent: true, opacity: 0 });
+    const fireflies = new THREE.Points(firefliesGeo, ffMat);
+    islandGroup.add(fireflies);
+
+    // ==========================================
+    // 8. 动画与日夜循环
+    // ==========================================
+    let time = 0;
+    const clock = new THREE.Clock();
+
+    // 颜色定义
+    const daySkyColor = new THREE.Color(0x87CEEB); // 白天天空
+    const nightSkyColor = new THREE.Color(0x0a0e27); // 夜晚天空
+    const daySunColor = new THREE.Color(0xffeedd); // 白天阳光
+    const nightMoonColor = new THREE.Color(0x445588); // 夜晚月光
+
+    function animate() {
+        requestAnimationFrame(animate);
+        time += clock.getDelta();
+        controls.update();
+
+        // 1. 风吹岛屿轻微浮动
+        islandGroup.position.y = Math.sin(time * 0.5) * 0.3;
+
+        // 2. 风车旋转
+        blades.rotation.z += 0.02;
+
+        // 3. 瀑布下落动画
+        const positions = waterfall.geometry.attributes.position.array;
+        for (let i = 1; i < positions.length; i += 3) {
+            positions[i] -= 0.15; // 下落速度
+            if (positions[i] < -12) { // 重置回顶部
+                positions[i] = 0; 
+            }
+        }
+        waterfall.geometry.attributes.position.needsUpdate = true;
+
+        // 4. 云朵缓慢环绕
+        clouds.forEach((cloud, index) => {
+            cloud.rotation.y += 0.002;
+            cloud.position.x += Math.sin(time * 0.1 + index) * 0.005;
+        });
+
+        // 5. 萤火虫飞舞动画
+        const ffPositions = fireflies.geometry.attributes.position.array;
+        for(let i=0; i<ffCount; i++) {
+            const idx = i * 3;
+            const data = ffData[i];
+            ffPositions[idx] = data.x + Math.sin(time * data.speed) * 1.5;
+            ffPositions[idx+1] = data.y + Math.cos(time * data.speed * 1.2) * 0.8;
+            ffPositions[idx+2] = data.z + Math.cos(time * data.speed) * 1.5;
+        }
+        fireflies.geometry.attributes.position.needsUpdate = true;
+
+        // 6. 核心：日夜交替逻辑
+        // 用 sin 函数控制周期，周期约为 20 秒
+        const cycle = Math.sin(time * 0.15); 
+        // 0 到 1 之间的值（用于插值）
+        const dayFactor = (cycle + 1) / 2; 
+
+        // 天空颜色插值
+        const currentSky = nightSkyColor.clone().lerp(daySkyColor, dayFactor);
+        scene.background = currentSky;
+        scene.fog.color = currentSky;
+
+        // 光照强度与颜色插值
+        sunLight.intensity = dayFactor * 1.2;
+        sunLight.color = nightMoonColor.clone().lerp(daySunColor, dayFactor);
+        
+        ambientLight.intensity = 0.1 + dayFactor * 0.5;
+        ambientLight.color = nightMoonColor.clone().lerp(0xffffff, dayFactor);
+
+        // 星空与萤火虫透明度 (夜晚显现)
+        starsMat.opacity = 1 - dayFactor;
+        ffMat.opacity = (1 - dayFactor) * 0.9;
+
+        // 房屋灯光 (夜晚亮起)
+        // 简单用 Material 的 emissive 属性模拟发光
+        house1.children[2].material.color.setHex(dayFactor > 0.5 ? 0x333333 : 0xffcc00);
+        house2.children[2].material.color.setHex(dayFactor > 0.5 ? 0x333333 : 0xffcc00);
+
+        renderer.render(scene, camera);
+    }
+
+    // 窗口自适应
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    animate();
+</script>
+</body>
+</html>
