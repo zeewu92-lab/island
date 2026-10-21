@@ -49,6 +49,14 @@
       提示框.hidden = false;
       document.getElementById("提示文字").textContent = 文字;
     };
+    window.addEventListener("error", (事件) => {
+      console.error("語未央场景运行错误：", 事件.error || 事件.message);
+      显示错误("三维场景发生运行错误：" + (事件.message || "未知错误") + "。请重新载入页面。");
+    });
+    window.addEventListener("unhandledrejection", (事件) => {
+      console.error("語未央场景异步错误：", 事件.reason);
+      显示错误("三维场景载入失败，请检查网络连接后重新载入页面。");
+    });
     if (!window.THREE || !THREE.OrbitControls) {
       显示错误("三维引擎没有成功载入。请检查网络连接后重新载入页面。");
       return;
@@ -93,9 +101,9 @@
     控制器.target.set(0, 2.4, 0);
     控制器.rotateSpeed = 0.78;
 
-    const 环境光 = new THREE.HemisphereLight(0xf0eadc, 0x596b50, 1.35);
+    const 环境光 = new THREE.HemisphereLight(0xf0eadc, 0x596b50, 1.15);
     场景.add(环境光);
-    const 阳光 = new THREE.DirectionalLight(0xffe6c5, 2.35);
+    const 阳光 = new THREE.DirectionalLight(0xffe6c5, 2.0);
     阳光.position.set(-18, 30, 20);
     场景.add(阳光);
     阳光.castShadow = true;
@@ -111,7 +119,7 @@
     const 岛屿 = new THREE.Group();
     场景.add(岛屿);
     const 材质 = (颜色, 粗糙度 = 0.9, 其他 = {}) => new THREE.MeshStandardMaterial({ color: 颜色, roughness: 粗糙度, ...其他 });
-    const 草材质 = 材質(0x6f8757);
+    const 草材质 = 材质(0x6f8757);
     const 土材质 = 材质(0x927e6b);
     const 石材质组 = [0x706d69, 0x817c72, 0x625f5c, 0x938777].map(色 => 材质(色));
     const 木材质 = 材质(0x8b5938);
