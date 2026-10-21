@@ -1,150 +1,560 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <!-- 强制浏览器使用亮色模式，防止被手机夜间模式变黑 -->
-    <meta name="color-scheme" content="light only">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>漂浮岛屿 - 移动端优化版</title>
-    <style>
-        body { margin: 0; overflow: hidden; background-color: #87CEEB; }
-        canvas { display: block; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="color-scheme" content="light only">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#a8d9ed">
+  <meta name="description" content="一座由程序生成的微型漂浮岛屿。">
+  <title>漂浮岛屿 · 云上秘境</title>
+  <style>
+    :root { color-scheme: light; --ink: #294454; --glass: rgba(250,253,255,.72); }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #a8d9ed; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; touch-action: pan-x pan-y; }
+    canvas { display: block; width: 100%; height: 100%; outline: none; }
+    .hud { position: fixed; z-index: 2; color: var(--ink); pointer-events: none; user-select: none; }
+    .brand { top: max(18px, env(safe-area-inset-top)); left: max(18px, env(safe-area-inset-left)); text-shadow: 0 1px 14px #fff9; }
+    .brand strong { display: block; font-size: clamp(17px, 2.6vw, 23px); letter-spacing: .12em; font-weight: 650; }
+    .brand span { display: block; margin-top: 4px; font-size: 11px; letter-spacing: .22em; opacity: .7; }
+    .hint { bottom: max(22px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); padding: 9px 14px; border: 1px solid #ffffff80; border-radius: 999px; background: var(--glass); backdrop-filter: blur(14px); font-size: 12px; white-space: nowrap; box-shadow: 0 8px 30px #40677b18; }
+    .tools { right: max(16px, env(safe-area-inset-right)); top: max(16px, env(safe-area-inset-top)); display: flex; gap: 8px; pointer-events: auto; }
+    button { min-width: 42px; min-height: 42px; padding: 0 13px; border: 1px solid #ffffffb8; border-radius: 999px; background: var(--glass); color: var(--ink); font: inherit; font-size: 12px; backdrop-filter: blur(14px); box-shadow: 0 5px 22px #40677b18; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    button:active { transform: scale(.97); }
+    #提示 { position: fixed; inset: 0; display: grid; place-items: center; padding: 28px; color: #294454; text-align: center; background: linear-gradient(#d9eef7, #a8d9ed); }
+    #提示[hidden] { display: none; }
+    #提示 section { max-width: 340px; }
+    #提示 h1 { font-size: 22px; font-weight: 600; }
+    #提示 p { font-size: 14px; line-height: 1.8; }
+    @media (max-width: 420px) { .brand span { letter-spacing: .12em; } .tools { gap: 5px; } button { min-width: 38px; padding: 0 10px; } .hint { font-size: 11px; } }
+    @media (prefers-reduced-motion: reduce) { .hint { backdrop-filter: none; } }
+  </style>
 </head>
 <body>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <div class="hud brand"><strong>云上秘境</strong><span>THE LITTLE WORLD ABOVE THE CLOUDS</span></div>
+  <div class="hud tools">
+    <button id="复位" type="button" aria-label="恢复初始视角">复位视角</button>
+    <button id="光线" type="button" aria-label="切换昼夜氛围">昼夜切换</button>
+  </div>
+  <div class="hud hint">拖动环视 · 双指缩放 · 探索云上的小世界</div>
+  <div id="提示" role="alert" hidden><section><h1>岛屿暂时无法载入</h1><p id="提示文字">请检查网络连接后重新载入页面。若浏览器不支持 WebGL，也可能无法显示三维场景。</p><button onclick="location.reload()">重新载入</button></section></div>
 
-<script>
-    // 1. 基础场景设置
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87CEEB); // 晴天蓝
-    scene.fog = new THREE.Fog(0x87CEEB, 30, 100); // 远处雾化
-
-    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(20, 15, 25);
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 手机端限制像素比，防卡顿
-    document.body.appendChild(renderer.domElement);
-
-    // 鼠标/触摸控制
-    const controls = new THREE.OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.maxPolarAngle = Math.PI / 2 - 0.05;
-    controls.target.set(0, 5, 0);
-
-    // 2. 光照系统 (用最基础的材质，必须配足光照)
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // 环境光调亮
-    scene.add(ambientLight);
-
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8); // 主光源
-    dirLight.position.set(20, 30, 20);
-    scene.add(dirLight);
-
-    // 3. 材质库 (改用 Lambert 材质，手机兼容性100%)
-    const matRock = new THREE.MeshLambertMaterial({ color: 0x6b5b45 });
-    const matGrass = new THREE.MeshLambertMaterial({ color: 0x5c9e38 });
-    const matWood = new THREE.MeshLambertMaterial({ color: 0x8B5A2B });
-    const matRoof = new THREE.MeshLambertMaterial({ color: 0x4a3b2c });
-    const matWhite = new THREE.MeshLambertMaterial({ color: 0xffffff });
-
-    // 4. 构建岛屿
-    const islandGroup = new THREE.Group();
-    scene.add(islandGroup);
-
-    // 底层岩石
-    const rockGeo = new THREE.ConeGeometry(8, 12, 9);
-    rockGeo.rotateX(Math.PI);
-    const rock = new THREE.Mesh(rockGeo, matRock);
-    rock.position.y = -6;
-    islandGroup.add(rock);
-
-    // 顶层草地
-    const grassGeo = new THREE.CylinderGeometry(8, 8, 1, 9);
-    const grass = new THREE.Mesh(grassGeo, matGrass);
-    grass.position.y = 0;
-    islandGroup.add(grass);
-
-    // 5. 大树
-    const treeGroup = new THREE.Group();
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.5, 8, 6), matWood);
-    trunk.position.y = 4;
-    treeGroup.add(trunk);
-
-    const leaves = new THREE.Mesh(new THREE.IcosahedronGeometry(4.5, 0), new THREE.MeshLambertMaterial({ color: 0x3a7d28 }));
-    leaves.position.y = 9;
-    treeGroup.add(leaves);
-    treeGroup.position.set(2, 0.5, -2);
-    islandGroup.add(treeGroup);
-
-    // 6. 房子
-    function createHouse(x, z, scale) {
-        const house = new THREE.Group();
-        const body = new THREE.Mesh(new THREE.BoxGeometry(3, 2.5, 3), matWhite);
-        body.position.y = 1.25;
-        house.add(body);
-        
-        const roof = new THREE.Mesh(new THREE.ConeGeometry(2.8, 1.5, 4), matRoof);
-        roof.position.y = 3.25;
-        roof.rotation.y = Math.PI / 4;
-        house.add(roof);
-        
-        house.position.set(x, 0.5, z);
-        house.scale.set(scale, scale, scale);
-        return house;
-    }
-    islandGroup.add(createHouse(-2, 2, 1));
-    islandGroup.add(createHouse(3, 4, 0.8));
-
-    // 7. 云朵生成
-    function createCloud(x, y, z) {
-        const cloudGroup = new THREE.Group();
-        const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-        for(let i=0; i<4; i++) {
-            const p = new THREE.Mesh(new THREE.IcosahedronGeometry(1.5 + Math.random() * 1.5, 0), cloudMat);
-            p.position.set((Math.random()-0.5)*4, (Math.random()-0.5)*2, (Math.random()-0.5)*4);
-            cloudGroup.add(p);
-        }
-        cloudGroup.position.set(x, y, z);
-        return cloudGroup;
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script>
+  (() => {
+    "use strict";
+    const 提示框 = document.getElementById("提示");
+    const 显示错误 = (文字) => {
+      提示框.hidden = false;
+      document.getElementById("提示文字").textContent = 文字;
+    };
+    if (!window.THREE || !THREE.OrbitControls) {
+      显示错误("三维引擎没有成功载入。请检查网络连接后重新载入页面。");
+      return;
     }
 
-    const clouds = [];
-    // 底部云海
-    for(let i=0; i<30; i++) {
-        const c = createCloud((Math.random()-0.5)*70, -12 - Math.random()*5, (Math.random()-0.5)*70);
-        c.scale.setScalar(1.5);
-        scene.add(c);
-        clouds.push(c);
+    let 渲染器;
+    try {
+      渲染器 = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+    } catch (错误) {
+      显示错误("当前浏览器无法启动 WebGL 三维画面，请尝试更新浏览器或开启图形加速。");
+      return;
     }
 
-    // 8. 动画循环
-    const clock = new THREE.Clock();
-    function animate() {
-        requestAnimationFrame(animate);
-        const time = clock.getElapsedTime();
-        controls.update();
+    const 场景 = new THREE.Scene();
+    const 天空色 = new THREE.Color(0xa8d9ed);
+    场景.background = 天空色;
+    场景.fog = new THREE.Fog(0xa8d9ed, 42, 125);
 
-        // 岛屿浮动
-        islandGroup.position.y = Math.sin(time * 0.5) * 0.3;
+    const 相机 = new THREE.PerspectiveCamera(39, innerWidth / innerHeight, 0.1, 240);
+    const 初始相机 = new THREE.Vector3(22, 16, 27);
+    相机.position.copy(初始相机);
 
-        // 云朵旋转
-        clouds.forEach((cloud, i) => {
-            cloud.rotation.y += 0.002;
-        });
+    渲染器.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.6));
+    渲染器.setSize(innerWidth, innerHeight);
+    渲染器.outputEncoding = THREE.sRGBEncoding;
+    渲染器.toneMapping = THREE.ACESFilmicToneMapping;
+    渲染器.toneMappingExposure = 1.12;
+    document.body.appendChild(渲染器.domElement);
+    渲染器.domElement.setAttribute("aria-label", "可旋转观察的三维漂浮岛屿");
 
-        renderer.render(scene, camera);
+    const 控制器 = new THREE.OrbitControls(相机, 渲染器.domElement);
+    控制器.enableDamping = true;
+    控制器.dampingFactor = 0.055;
+    控制器.enablePan = false;
+    控制器.minDistance = 17;
+    控制器.maxDistance = 48;
+    控制器.minPolarAngle = 0.28;
+    控制器.maxPolarAngle = Math.PI * 0.49;
+    控制器.target.set(0, 2.4, 0);
+    控制器.rotateSpeed = 0.62;
+
+    const 环境光 = new THREE.HemisphereLight(0xdff5ff, 0x6b7357, 1.45);
+    场景.add(环境光);
+    const 阳光 = new THREE.DirectionalLight(0xfff1d6, 2.2);
+    阳光.position.set(-18, 30, 20);
+    场景.add(阳光);
+    阳光.castShadow = true;
+    阳光.shadow.mapSize.set(1024, 1024);
+    阳光.shadow.camera.left = -18;
+    阳光.shadow.camera.right = 18;
+    阳光.shadow.camera.top = 22;
+    阳光.shadow.camera.bottom = -18;
+    阳光.shadow.bias = -0.00035;
+    渲染器.shadowMap.enabled = true;
+    渲染器.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    const 岛屿 = new THREE.Group();
+    场景.add(岛屿);
+    const 材质 = (颜色, 粗糙度 = 0.9, 其他 = {}) => new THREE.MeshStandardMaterial({ color: 颜色, roughness: 粗糙度, ...其他 });
+    const 草材质 = 材质(0x6baf58);
+    const 土材质 = 材质(0x98704f);
+    const 石材质组 = [0x706d69, 0x817c72, 0x625f5c, 0x938777].map(色 => 材质(色));
+    const 木材质 = 材质(0x8b5938);
+    const 木亮材质 = 材质(0xb77c4a);
+    const 屋墙材质 = 材质(0xf0dfbd);
+    const 屋顶材质 = [0x98594b, 0xb46c55, 0x804a42].map(色 => 材质(色));
+    const 叶材质组 = [0x347b43, 0x438d49, 0x5b9e50, 0x78ad5c].map(色 => 材质(色, 0.94, { side: THREE.DoubleSide }));
+    const 苔材质 = 材质(0x4f8050);
+    const 石头随机 = (最小, 最大) => 最小 + Math.random() * (最大 - 最小);
+
+    // 用顶点扰动生成不规则岩层，避免岛体像规则倒圆锥。
+    function 创建岩层(半径, 高度, 细分, 中心Y, 缩放 = 1) {
+      const 几何 = new THREE.ConeGeometry(半径, 高度, 18, 5, false);
+      const 顶点 = 几何.attributes.position;
+      for (let i = 0; i < 顶点.count; i++) {
+        const x = 顶点.getX(i), y = 顶点.getY(i), z = 顶点.getZ(i);
+        const 扰动 = 1 + 0.09 * Math.sin(x * 1.7 + z * 0.8) + 0.055 * Math.cos(z * 2.3 - y);
+        顶点.setXYZ(i, x * 扰动, y + (Math.abs(y) < 高度 * 0.42 ? Math.sin(x * 1.4 + z) * 0.16 : 0), z * 扰动);
+      }
+      几何.rotateX(Math.PI);
+      几何.computeVertexNormals();
+      const 岩石 = new THREE.Mesh(几何, 石材质组[Math.floor(Math.random() * 石材质组.length)]);
+      岩石.position.set(0, 中心Y, 0);
+      岩石.scale.setScalar(缩放);
+      岩石.castShadow = true;
+      岩石.receiveShadow = true;
+      岛屿.add(岩石);
+      return 岩石;
+    }
+    创建岩层(7.8, 10.5, 18, -5.1);
+    创建岩层(5.4, 5.8, 18, -8.4, 0.96);
+
+    const 草地几何 = new THREE.CylinderGeometry(8.1, 7.55, 0.82, 32, 3);
+    const 草顶点 = 草地几何.attributes.position;
+    for (let i = 0; i < 草顶点.count; i++) {
+      const x = 草顶点.getX(i), y = 草顶点.getY(i), z = 草顶点.getZ(i);
+      const 扰动 = 1 + 0.035 * Math.sin(Math.atan2(z, x) * 11) + 0.018 * Math.cos(x * 2.1 + z);
+      草顶点.setXYZ(i, x * 扰动, y + (y > 0 ? 0.04 * Math.sin(x * 1.7 + z * 1.3) : 0), z * 扰动);
+    }
+    草地几何.computeVertexNormals();
+    const 草地 = new THREE.Mesh(草地几何, 草材质);
+    草地.position.y = -0.12;
+    草地.receiveShadow = true;
+    草地.castShadow = true;
+    岛屿.add(草地);
+
+    // 草地边缘铺设土层和随机碎石，柔化草岩交界。
+    const 土边 = new THREE.Mesh(new THREE.TorusGeometry(7.78, 0.24, 5, 48), 土材质);
+    土边.rotation.x = Math.PI / 2;
+    土边.position.y = -0.31;
+    土边.scale.set(1, 0.98, 1);
+    岛屿.add(土边);
+    for (let i = 0; i < 46; i++) {
+      const 角 = Math.random() * Math.PI * 2;
+      const 半径 = 石头随机(7.3, 8.0);
+      const 石几何 = new THREE.DodecahedronGeometry(石头随机(0.12, 0.34), 0);
+      const 石头 = new THREE.Mesh(石几何, 石材质组[i % 石材质组.length]);
+      石头.position.set(Math.cos(角) * 半径, 石头随机(-0.45, 0.05), Math.sin(角) * 半径);
+      石头.rotation.set(Math.random(), Math.random() * 3, Math.random());
+      石头.scale.set(1.2, 0.65, 0.9);
+      石头.castShadow = true;
+      岛屿.add(石头);
+    }
+    for (let i = 0; i < 22; i++) {
+      const 角 = Math.random() * Math.PI * 2;
+      const 半径 = 石头随机(6.9, 7.7);
+      const 苔 = new THREE.Mesh(new THREE.SphereGeometry(石头随机(0.16, 0.36), 7, 5), 苔材质);
+      苔.position.set(Math.cos(角) * 半径, 石头随机(-2.8, -0.7), Math.sin(角) * 半径);
+      苔.scale.set(1.2, 0.45, 0.85);
+      岛屿.add(苔);
     }
 
-    window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
+    // 用不规则分叉枝干和多簇叶片构建树冠。
+    const 树组 = new THREE.Group();
+    树组.position.set(2.0, 0.25, -2.0);
+    岛屿.add(树组);
+    function 创建枝干(起点, 终点, 底半径, 顶半径, 材质对象 = 木材质) {
+      const 方向 = new THREE.Vector3().subVectors(终点, 起点);
+      const 几何 = new THREE.CylinderGeometry(顶半径, 底半径, 方向.length(), 6, 1);
+      const 网格 = new THREE.Mesh(几何, 材质对象);
+      网格.position.copy(起点).add(终点).multiplyScalar(0.5);
+      网格.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), 方向.normalize());
+      网格.castShadow = true;
+      树组.add(网格);
+      return 网格;
+    }
+    const 树根 = new THREE.Vector3(0, 0, 0);
+    const 树顶 = new THREE.Vector3(0.35, 7.0, -0.15);
+    创建枝干(树根, 树顶, 0.62, 0.16);
+    const 树枝端点 = [];
+    for (let i = 0; i < 10; i++) {
+      const 高 = 2.0 + i * 0.43;
+      const 角 = i * 2.399;
+      const 长 = 1.0 + Math.sin(i * 1.7) * 0.42;
+      const 起点 = new THREE.Vector3(Math.sin(角) * 0.12, 高, Math.cos(角) * 0.12);
+      const 终点 = new THREE.Vector3(Math.sin(角) * 长, 高 + 0.9 + (i % 3) * 0.24, Math.cos(角) * 长);
+      创建枝干(起点, 终点, 0.22 - i * 0.009, 0.055);
+      树枝端点.push(终点);
+      const 次端 = new THREE.Vector3(终点.x * 1.35 + Math.cos(角) * 0.35, 终点.y + 0.6, 终点.z * 1.35 + Math.sin(角) * 0.35);
+      创建枝干(终点, 次端, 0.085, 0.025, 木亮材质);
+      树枝端点.push(次端);
+    }
+    const 叶簇组 = [];
+    for (let i = 0; i < 62; i++) {
+      const 高度 = 石头随机(4.6, 9.4);
+      const 角 = i * 2.399;
+      const 横向 = (高度 - 4.3) * 0.42 + 石头随机(-0.55, 0.55);
+      const 位置 = new THREE.Vector3(Math.cos(角) * 横向, 高度, Math.sin(角) * 横向);
+      const 大小 = 石头随机(0.58, 1.22) * (高度 > 8.4 ? 0.82 : 1);
+      const 叶簇 = new THREE.Mesh(new THREE.IcosahedronGeometry(大小, 1), 叶材质组[Math.floor(Math.random() * 叶材质组.length)]);
+      叶簇.position.copy(位置);
+      叶簇.scale.set(1.0, 石头随机(0.82, 1.18), 0.95);
+      叶簇.rotation.set(Math.random(), Math.random() * Math.PI, Math.random());
+      叶簇.castShadow = true;
+      叶簇.receiveShadow = true;
+      树组.add(叶簇);
+      叶簇组.push({网格: 叶簇, 相位: Math.random() * Math.PI * 2, 原位: 叶簇.rotation.z});
+    }
+
+    // 程序化草丛与野花，控制数量以兼顾手机性能。
+    const 草丛材质组 = [材质(0x438849), 材质(0x76ad59), 材质(0x9abf69)];
+    for (let i = 0; i < 155; i++) {
+      const 角 = Math.random() * Math.PI * 2;
+      const 半径 = Math.sqrt(Math.random()) * 7.2;
+      const x = Math.cos(角) * 半径, z = Math.sin(角) * 半径;
+      if ((x - 2) ** 2 + (z + 2) ** 2 < 5.5 || (x + 2) ** 2 + (z - 2) ** 2 < 5) continue;
+      const 高 = 石头随机(0.16, 0.48);
+      const 草 = new THREE.Mesh(new THREE.ConeGeometry(石头随机(0.045, 0.09), 高, 4), 草丛材质组[i % 草丛材质组.length]);
+      草.position.set(x, 0.24 + 高 * 0.35, z);
+      草.rotation.z = 石头随机(-0.28, 0.28);
+      草.rotation.x = 石头随机(-0.18, 0.18);
+      岛屿.add(草);
+    }
+    const 花材质组 = [材质(0xf3c6cc), 材质(0xffe6a3), 材质(0xf5f0dc)];
+    for (let i = 0; i < 20; i++) {
+      const 角 = Math.random() * Math.PI * 2, 半径 = 石头随机(3.1, 6.9);
+      const x = Math.cos(角) * 半径, z = Math.sin(角) * 半径;
+      const 花组 = new THREE.Group();
+      const 花茎 = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.025, 0.28, 4), 草丛材质组[0]);
+      花茎.position.y = 0.36;
+      花组.add(花茎);
+      for (let j = 0; j < 5; j++) {
+        const 花瓣 = new THREE.Mesh(new THREE.SphereGeometry(0.075, 6, 5), 花材质组[i % 花材质组.length]);
+        const 角度 = j * Math.PI * 2 / 5;
+        花瓣.position.set(Math.cos(角度) * 0.09, 0.51, Math.sin(角度) * 0.09);
+        花瓣.scale.set(1, 0.65, 0.8);
+        花组.add(花瓣);
+      }
+      花组.position.set(x, 0, z);
+      岛屿.add(花组);
+    }
+
+    // 房屋由墙体、木梁、门窗和独立瓦片组成。
+    function 创建房屋(x, z, 比例, 朝向 = 0) {
+      const 房组 = new THREE.Group();
+      const 墙 = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.0, 2.35), 屋墙材质);
+      墙.position.y = 1.15;
+      墙.castShadow = true;
+      墙.receiveShadow = true;
+      房组.add(墙);
+      const 屋顶几何 = new THREE.ConeGeometry(2.05, 1.35, 4);
+      const 屋顶 = new THREE.Mesh(屋顶几何, 屋顶材质[Math.floor(Math.random() * 屋顶材质.length)]);
+      屋顶.position.y = 2.85;
+      屋顶.rotation.y = Math.PI / 4;
+      屋顶.castShadow = true;
+      房组.add(屋顶);
+      const 门 = new THREE.Mesh(new THREE.BoxGeometry(0.48, 1.08, 0.09), 木材质);
+      门.position.set(0, 0.64, 1.205);
+      房组.add(门);
+      const 门把 = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 5), 材质(0xd9b66e, 0.35, { metalness: 0.45 }));
+      门把.position.set(0.13, 0.65, 1.27);
+      房组.add(门把);
+      const 窗框材质 = 木亮材质;
+      const 窗玻璃 = 材质(0x9dd8e5, 0.28, { metalness: 0.05, emissive: 0x183a42, emissiveIntensity: 0.12 });
+      for (const 窗X of [-0.78, 0.78]) {
+        const 窗框 = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.62, 0.1), 窗框材质);
+        窗框.position.set(窗X, 1.35, 1.22);
+        房组.add(窗框);
+        const 窗 = new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.47, 0.11), 窗玻璃);
+        窗.position.set(窗X, 1.36, 1.275);
+        房组.add(窗);
+        const 十字 = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.48, 0.03), 屋墙材质);
+        十字.position.set(窗X, 1.36, 1.34);
+        房组.add(十字);
+      }
+      for (let i = 0; i < 7; i++) {
+        const 瓦片 = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.09, 0.56), 屋顶材质[i % 屋顶材质.length]);
+        const 边 = i % 2 === 0 ? -1 : 1;
+        瓦片.position.set(边 * (0.25 + (i % 3) * 0.36), 2.72 + (i % 3) * 0.19, -0.7 + Math.floor(i / 2) * 0.42);
+        瓦片.rotation.z = 边 * 0.35;
+        房组.add(瓦片);
+      }
+      const 烟囱 = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.9, 0.38), 屋顶材质[0]);
+      烟囱.position.set(0.65, 3.12, -0.25);
+      房组.add(烟囱);
+      const 烟团组 = new THREE.Group();
+      for (let i = 0; i < 5; i++) {
+        const 烟团 = new THREE.Mesh(new THREE.SphereGeometry(0.11 + i * 0.025, 7, 5), new THREE.MeshBasicMaterial({ color: 0xf2f4f2, transparent: true, opacity: 0.23 }));
+        烟团.position.set(0.65 + Math.sin(i) * 0.1, 3.6 + i * 0.26, -0.25 + Math.cos(i * 1.4) * 0.08);
+        烟团组.add(烟团);
+      }
+      房组.add(烟团组);
+      房组.position.set(x, 0.18, z);
+      房组.scale.setScalar(比例);
+      房组.rotation.y = 朝向;
+      岛屿.add(房组);
+      return {组: 房组, 烟: 烟团组};
+    }
+    const 房屋组 = [创建房屋(-2.15, 2.0, 0.92, 0.2), 创建房屋(3.2, 3.55, 0.68, -0.5)];
+
+    // 岛上小水潭，使用透明材质与动态波纹模拟清澈水面。
+    const 水组 = new THREE.Group();
+    水组.position.set(-4.2, 0.29, -1.2);
+    岛屿.add(水组);
+    const 水面材质 = new THREE.MeshPhysicalMaterial({ color: 0x69c9dd, roughness: 0.19, metalness: 0.06, clearcoat: 0.85, clearcoatRoughness: 0.16, transparent: true, opacity: 0.88 });
+    const 水面 = new THREE.Mesh(new THREE.CircleGeometry(1.45, 40), 水面材质);
+    水面.rotation.x = -Math.PI / 2;
+    水面.scale.set(1.0, 0.7, 1);
+    水面.position.y = 0.04;
+    水组.add(水面);
+    const 波纹组 = [];
+    for (let i = 0; i < 3; i++) {
+      const 波纹 = new THREE.Mesh(new THREE.RingGeometry(0.36 + i * 0.24, 0.39 + i * 0.24, 48), new THREE.MeshBasicMaterial({ color: 0xd5fbff, transparent: true, opacity: 0.45, side: THREE.DoubleSide }));
+      波纹.rotation.x = -Math.PI / 2;
+      波纹.position.y = 0.06 + i * 0.002;
+      水组.add(波纹);
+      波纹组.push(波纹);
+    }
+
+    // 瀑布使用多条半透明弯曲水带，并在落点生成水花。
+    const 瀑布组 = new THREE.Group();
+    瀑布组.position.set(-4.1, -0.3, -1.15);
+    岛屿.add(瀑布组);
+    const 水带组 = [];
+    for (let i = 0; i < 5; i++) {
+      const 点列 = [];
+      for (let j = 0; j <= 12; j++) {
+        const t = j / 12;
+        点列.push(new THREE.Vector3((i - 2) * 0.13 + Math.sin(t * 4 + i) * 0.09, -t * 5.8, Math.cos(t * 3 + i) * 0.12));
+      }
+      const 曲线 = new THREE.CatmullRomCurve3(点列);
+      const 几何 = new THREE.TubeGeometry(曲线, 18, 0.055 + (i % 2) * 0.025, 5, false);
+      const 水带 = new THREE.Mesh(几何, new THREE.MeshBasicMaterial({ color: i % 2 ? 0x8ce8f2 : 0xe1fbff, transparent: true, opacity: 0.62 }));
+      瀑布组.add(水带);
+      水带组.push(水带);
+    }
+    const 水雾组 = new THREE.Group();
+    for (let i = 0; i < 13; i++) {
+      const 雾 = new THREE.Mesh(new THREE.SphereGeometry(石头随机(0.09, 0.22), 7, 5), new THREE.MeshBasicMaterial({ color: 0xe7fbff, transparent: true, opacity: 0.3 }));
+      雾.position.set(石头随机(-0.7, 0.7), -5.6 + 石头随机(-0.2, 0.6), 石头随机(-0.35, 0.35));
+      水雾组.add(雾);
+    }
+    瀑布组.add(水雾组);
+
+    // 分层云团以多尺度软色块构成云海，靠漂移和呼吸缩放营造流动感。
+    const 云组 = new THREE.Group();
+    场景.add(云组);
+    const 云材质组 = [
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, transparent: true, opacity: 0.74, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0xe6f5fb, roughness: 1, transparent: true, opacity: 0.58, flatShading: true }),
+      new THREE.MeshStandardMaterial({ color: 0xc4e0ed, roughness: 1, transparent: true, opacity: 0.43, flatShading: true })
+    ];
+    const 云团组 = [];
+    function 创建云团(x, y, z, 大小, 数量 = 7) {
+      const 云 = new THREE.Group();
+      for (let i = 0; i < 数量; i++) {
+        const 半径 = 石头随机(0.9, 2.3);
+        const 团 = new THREE.Mesh(new THREE.IcosahedronGeometry(半径, 1), 云材质组[Math.floor(Math.random() * 云材质组.length)]);
+        团.position.set(石头随机(-2.4, 2.4), 石头随机(-0.65, 0.65), 石头随机(-1.8, 1.8));
+        团.scale.set(石头随机(1.0, 1.7), 石头随机(0.42, 0.8), 石头随机(0.8, 1.4));
+        云.add(团);
+      }
+      云.position.set(x, y, z);
+      云.scale.setScalar(大小);
+      云.userData = {相位: Math.random() * Math.PI * 2, 初始X: x, 速度: 石头随机(0.12, 0.34), 摇幅: 石头随机(0.12, 0.4)};
+      云组.add(云);
+      云团组.push(云);
+    }
+    for (let i = 0; i < 22; i++) {
+      const 角 = Math.random() * Math.PI * 2, 半径 = 石头随机(13, 34);
+      创建云团(Math.cos(角) * 半径, 石头随机(-15, -8), Math.sin(角) * 半径, 石头随机(0.8, 1.65), 5 + Math.floor(Math.random() * 5));
+    }
+    for (let i = 0; i < 7; i++) 创建云团((i - 3) * 8, -7.6 + Math.random() * 1.2, -12 - Math.random() * 5, 石头随机(0.8, 1.25), 6);
+
+    // 漂浮微粒、萤火虫与落叶，运动轨迹各自带有不同相位。
+    const 微粒组 = new THREE.Group();
+    场景.add(微粒组);
+    const 微粒资料 = [];
+    const 微粒材质组 = [
+      new THREE.MeshBasicMaterial({ color: 0xffedbd, transparent: true, opacity: 0.85 }),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.72 }),
+      new THREE.MeshBasicMaterial({ color: 0xffd6a4, transparent: true, opacity: 0.75 })
+    ];
+    for (let i = 0; i < 34; i++) {
+      const 光点 = new THREE.Mesh(new THREE.SphereGeometry(石头随机(0.025, 0.065), 6, 5), 微粒材质组[i % 微粒材质组.length]);
+      const 资料 = {中心X: 石头随机(-9, 9), 中心Y: 石头随机(0.8, 10), 中心Z: 石头随机(-8, 8), 相位: Math.random() * Math.PI * 2, 速度: 石头随机(0.3, 0.9)};
+      光点.position.set(资料.中心X, 资料.中心Y, 资料.中心Z);
+      微粒组.add(光点);
+      微粒资料.push({网格: 光点, ...资料});
+    }
+    const 落叶组 = new THREE.Group();
+    场景.add(落叶组);
+    const 落叶资料 = [];
+    for (let i = 0; i < 12; i++) {
+      const 叶片 = new THREE.Mesh(new THREE.PlaneGeometry(0.17, 0.28), 材质(i % 2 ? 0xc98c55 : 0xd8b56d, 0.9, { side: THREE.DoubleSide }));
+      const 资料 = {x: 石头随机(-8, 8), y: 石头随机(1, 11), z: 石头随机(-7, 7), 相位: Math.random() * 6.28, 速度: 石头随机(0.18, 0.42)};
+      叶片.position.set(资料.x, 资料.y, 资料.z);
+      落叶组.add(叶片);
+      落叶资料.push({网格: 叶片, ...资料});
+    }
+
+    let 夜晚 = false;
+    const 夜光 = new THREE.PointLight(0xffbd78, 0, 12);
+    夜光.position.set(-2.1, 2.0, 3.2);
+    岛屿.add(夜光);
+    const 窗灯组 = [];
+    for (const 房屋 of 房屋组) {
+      const 灯材质 = new THREE.MeshBasicMaterial({ color: 0xffc777, transparent: true, opacity: 0.0 });
+      const 灯光片 = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.38), 灯材质);
+      灯光片.position.set(-0.78 * (房屋.组.scale.x / 0.92), 1.36 * (房屋.组.scale.y / 0.92), 1.34 * (房屋.组.scale.z / 0.92));
+      房屋.组.add(灯光片);
+      const 点灯 = new THREE.PointLight(0xffb96b, 0, 4.5);
+      点灯.position.set(0, 1.45, 1.8);
+      房屋.组.add(点灯);
+      窗灯组.push({材质: 灯材质, 灯: 点灯});
+    }
+
+    const 时钟 = new THREE.Clock();
+    let 总时间 = 0;
+    let 上次时间 = 0;
+    let 动画帧 = 0;
+    const 减少动态 = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    function 更新昼夜() {
+      const 天空目标 = 夜晚 ? new THREE.Color(0x17283f) : new THREE.Color(0xa8d9ed);
+      场景.background.copy(天空目标);
+      场景.fog.color.copy(天空目标);
+      环境光.color.set(夜晚 ? 0x7895c5 : 0xdff5ff);
+      环境光.groundColor.set(夜晚 ? 0x252f48 : 0x6b7357);
+      环境光.intensity = 夜晚 ? 0.58 : 1.45;
+      阳光.color.set(夜晚 ? 0x8fa9e8 : 0xfff1d6);
+      阳光.intensity = 夜晚 ? 0.32 : 2.2;
+      渲染器.toneMappingExposure = 夜晚 ? 0.88 : 1.12;
+      夜光.intensity = 夜晚 ? 1.8 : 0;
+      窗灯组.forEach(项 => {
+        项.材质.opacity = 夜晚 ? 0.95 : 0;
+        项.灯.intensity = 夜晚 ? 1.1 : 0;
+      });
+      document.getElementById("光线").textContent = 夜晚 ? "切换白昼" : "昼夜切换";
+      微粒材质组.forEach((材质对象, i) => {
+        材质对象.opacity = 夜晚 ? 0.95 : (i === 0 ? 0.42 : 0.22);
+        材质对象.color.set(夜晚 ? 0xffd778 : (i === 1 ? 0xffffff : 0xffedbd));
+      });
+    }
+    document.getElementById("光线").addEventListener("click", () => {
+      夜晚 = !夜晚;
+      更新昼夜();
+    });
+    document.getElementById("复位").addEventListener("click", () => {
+      相机.position.copy(初始相机);
+      控制器.target.set(0, 2.4, 0);
+      控制器.update();
     });
 
-    animate();
-</script>
+    function 动画() {
+      动画帧 = requestAnimationFrame(动画);
+      const 经过 = Math.min(时钟.getDelta(), 0.05);
+      总时间 += 经过;
+      控制器.update();
+      if (!减少动态) {
+        岛屿.position.y = Math.sin(总时间 * 0.48) * 0.22;
+        树组.rotation.z = Math.sin(总时间 * 0.8) * 0.012;
+        叶簇组.forEach(项 => {
+          项.网格.rotation.z = 项.原位 + Math.sin(总时间 * 1.25 + 项.相位) * 0.035;
+        });
+        云团组.forEach(云 => {
+          云.position.x = 云.userData.初始X + Math.sin(总时间 * 云.userData.速度 + 云.userData.相位) * 云.userData.摇幅;
+          云.position.z += Math.sin(总时间 * 0.12 + 云.userData.相位) * 0.0007;
+          云.rotation.y = Math.sin(总时间 * 0.08 + 云.userData.相位) * 0.045;
+        });
+        波纹组.forEach((波纹, i) => {
+          const 循环 = (总时间 * 0.22 + i / 3) % 1;
+          波纹.scale.setScalar(0.7 + 循环 * 1.2);
+          波纹.material.opacity = 0.42 * (1 - 循环);
+        });
+        水面.position.y = 0.04 + Math.sin(总时间 * 1.5) * 0.018;
+        水带组.forEach((水带, i) => {
+          水带.position.x = Math.sin(总时间 * 1.8 + i) * 0.035;
+        });
+        水雾组.children.forEach((雾, i) => {
+          雾.position.y = -5.6 + ((总时间 * 0.32 + i * 0.19) % 1.2);
+          雾.position.x += Math.sin(总时间 + i) * 0.0008;
+          雾.material.opacity = 0.16 + Math.sin(总时间 * 2 + i) * 0.09;
+        });
+        微粒资料.forEach(项 => {
+          项.网格.position.x = 项.中心X + Math.sin(总时间 * 项.速度 + 项.相位) * 0.55;
+          项.网格.position.y = 项.中心Y + Math.sin(总时间 * 1.2 + 项.相位) * 0.38;
+          项.网格.position.z = 项.中心Z + Math.cos(总时间 * 0.6 + 项.相位) * 0.42;
+          const 呼吸 = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(总时间 * 2.4 + 项.相位));
+          项.网格.scale.setScalar(夜晚 ? 0.65 + 呼吸 : 0.6 + 呼吸 * 0.35);
+        });
+        落叶资料.forEach(项 => {
+          项.网格.position.y = 1 + ((项.y - 总时间 * 项.速度 + 10) % 10);
+          项.网格.position.x = 项.x + Math.sin(总时间 * 0.7 + 项.相位) * 0.8;
+          项.网格.position.z = 项.z + Math.cos(总时间 * 0.5 + 项.相位) * 0.55;
+          项.网格.rotation.set(Math.sin(总时间 + 项.相位) * 0.6, 总时间 * 0.45 + 项.相位, Math.cos(总时间 * 0.8 + 项.相位) * 0.45);
+        });
+        房屋组.forEach((房屋, i) => {
+          房屋.烟.children.forEach((烟, j) => {
+            烟.position.y = 3.6 + j * 0.26 + Math.sin(总时间 * 0.6 + j + i) * 0.12;
+            烟.position.x = 0.65 + Math.sin(总时间 * 0.7 + j * 1.4) * (0.1 + j * 0.04);
+            烟.material.opacity = 0.12 + (1 - j / 6) * 0.16;
+          });
+        });
+      }
+      渲染器.render(场景, 相机);
+    }
+
+    function 调整画面() {
+      const 宽 = window.innerWidth;
+      const 高 = window.innerHeight;
+      相机.aspect = 宽 / 高;
+      // 竖屏稍微拉远相机，避免岛屿顶部或底部被裁切。
+      if (高 > 宽) {
+        相机.fov = 43;
+        控制器.maxDistance = 52;
+      } else {
+        相机.fov = 39;
+        控制器.maxDistance = 46;
+      }
+      相机.updateProjectionMatrix();
+      渲染器.setPixelRatio(Math.min(window.devicePixelRatio || 1, 宽 < 600 ? 1.35 : 1.6));
+      渲染器.setSize(宽, 高);
+    }
+    window.addEventListener("resize", 调整画面, { passive: true });
+    window.addEventListener("orientationchange", () => setTimeout(调整画面, 180), { passive: true });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        时钟.getDelta();
+        渲染器.render(场景, 相机);
+      }
+    });
+    更新昼夜();
+    调整画面();
+    动画();
+  })();
+  </script>
 </body>
 </html>
