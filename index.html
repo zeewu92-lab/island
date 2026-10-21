@@ -34,7 +34,6 @@
   <div class="hud brand"><strong>語未央</strong><span>詞語生長，花園未央</span></div>
   <div class="hud tools">
     <button id="复位" type="button" aria-label="恢复初始视角">复位视角</button>
-    <button id="光线" type="button" aria-label="切换昼夜氛围">昼夜切换</button>
   </div>
   <div class="hud hint">滑動環視 · 雙指自由縮放 · 讓花園慢慢生長</div>
   <div id="提示" role="alert" hidden><section><h1>岛屿暂时无法载入</h1><p id="提示文字">请检查网络连接后重新载入页面。若浏览器不支持 WebGL，也可能无法显示三维场景。</p><button onclick="location.reload()">重新载入</button></section></div>
@@ -71,9 +70,32 @@
     }
 
     const 场景 = new THREE.Scene();
-    const 天空色 = new THREE.Color(0xcbd8d0);
-    场景.background = 天空色;
+    场景.background = new THREE.Color(0x101a2b);
     场景.fog = new THREE.Fog(0xcbd8d0, 58, 175);
+    const 天空参数 = { uniforms: { uSunHeight:{value:0.45}, uTwilight:{value:0}, uNight:{value:0}, uSunDir:{value:new THREE.Vector3(-0.4,0.5,0.6).normalize()}, uTime:{value:0} } };
+    const 天空穹顶 = new THREE.Mesh(new THREE.SphereGeometry(220,48,32), new THREE.ShaderMaterial({
+      uniforms:天空参数.uniforms, side:THREE.BackSide, depthWrite:false,
+      vertexShader:`varying vec3 vDirection; void main(){vDirection=normalize(position);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+      fragmentShader:`precision highp float; varying vec3 vDirection; uniform float uSunHeight; uniform float uTwilight; uniform float uNight; uniform vec3 uSunDir; uniform float uTime;
+      float hash(vec3 p){p=fract(p*0.3183099+vec3(0.1,0.2,0.3));p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+      void main(){vec3 d=normalize(vDirection);float h=clamp(d.y*0.5+0.5,0.0,1.0);
+      vec3 nightTop=vec3(0.018,0.035,0.085),nightHorizon=vec3(0.10,0.13,0.21);vec3 dayTop=vec3(0.16,0.43,0.70),dayMid=vec3(0.42,0.68,0.83),dayHorizon=vec3(0.83,0.82,0.75);
+      vec3 col=mix(nightHorizon,nightTop,pow(h,0.65));col=mix(col,dayHorizon,smoothstep(0.0,0.72,h)*(1.0-uNight));col=mix(col,dayMid,smoothstep(0.16,0.72,h)*(1.0-uNight));col=mix(col,dayTop,smoothstep(0.48,0.98,h)*(1.0-uNight));
+      float band=pow(1.0-abs(d.y),5.0);col=mix(col,vec3(0.95,0.38,0.23),clamp(uTwilight*band*0.95,0.0,0.85));float sd=max(dot(d,normalize(uSunDir)),0.0);float disk=smoothstep(0.9992,0.99975,sd)*(1.0-uNight*0.7);float halo=pow(sd,48.0)*(1.0-uNight*0.75);col+=vec3(1.0,0.68,0.35)*halo*0.32+vec3(1.0,0.88,0.66)*disk*2.0;
+      float star=step(0.9978,hash(floor(d*850.0)))*smoothstep(0.15,0.85,h)*uNight;col+=vec3(0.75,0.84,1.0)*star*(0.65+0.35*sin(uTime*1.2+hash(floor(d*850.0))*6.28));gl_FragColor=vec4(col,1.0);}`
+    }));
+    天空穹顶.frustumCulled=false; 场景.add(天空穹顶);
+    const 台北日照={日出:6,日落:18,日间比例:0.5,夜间比例:0};
+    function 计算台北日出日落(日期=new Date()){
+      const 纬度=25.033,经度=121.5654,时区=8;
+      const n=Math.floor((Date.UTC(日期.getFullYear(),日期.getMonth(),日期.getDate())-Date.UTC(日期.getFullYear(),0,0))/86400000);
+      const g=2*Math.PI/365*(n-1);
+      const eq=229.18*(0.000075+0.001868*Math.cos(g)-0.032077*Math.sin(g)-0.014615*Math.cos(2*g)-0.040849*Math.sin(2*g));
+      const dec=0.006918-0.399912*Math.cos(g)+0.070257*Math.sin(g)-0.006758*Math.cos(2*g)+0.000907*Math.sin(2*g)-0.002697*Math.cos(3*g)+0.00148*Math.sin(3*g);
+      const lat=纬度*Math.PI/180;const ch=Math.cos(90.833*Math.PI/180)/(Math.cos(lat)*Math.cos(dec))-Math.tan(lat)*Math.tan(dec);
+      const ha=Math.acos(Math.max(-1,Math.min(1,ch)))*180/Math.PI;const noon=720-4*经度-eq+时区*60;
+      return {日出:(noon-4*ha)/60,日落:(noon+4*ha)/60};
+    }
 
     const 相机 = new THREE.PerspectiveCamera(39, innerWidth / innerHeight, 0.1, 240);
     const 初始相机 = new THREE.Vector3(22, 16, 27);
@@ -730,63 +752,19 @@
       落叶资料.push({网格: 叶片, ...资料});
     }
 
-    let 夜晚 = false;
-    const 夜光 = new THREE.PointLight(0xffbd78, 0, 12);
-    夜光.position.set(-2.1, 2.0, 3.2);
-    岛屿.add(夜光);
-    const 窗灯组 = [];
-    for (const 房屋 of 房屋组) {
-      const 灯材质 = new THREE.MeshBasicMaterial({ color: 0xffc777, transparent: true, opacity: 0.0 });
-      const 灯光片 = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.38), 灯材质);
-      灯光片.position.set(-0.78 * (房屋.组.scale.x / 0.92), 1.36 * (房屋.组.scale.y / 0.92), 1.34 * (房屋.组.scale.z / 0.92));
-      房屋.组.add(灯光片);
-      const 点灯 = new THREE.PointLight(0xffb96b, 0, 4.5);
-      点灯.position.set(0, 1.45, 1.8);
-      房屋.组.add(点灯);
-      窗灯组.push({材质: 灯材质, 灯: 点灯});
+    const 夜光 = new THREE.PointLight(0xffbd78,0,12);夜光.position.set(-2.1,2.0,3.2);岛屿.add(夜光);
+    const 窗灯组=[];
+    for(const 房屋 of 房屋组){const 灯材质=new THREE.MeshBasicMaterial({color:0xffc777,transparent:true,opacity:0});const 灯光片=new THREE.Mesh(new THREE.PlaneGeometry(0.34,0.38),灯材质);灯光片.position.set(-0.78*(房屋.组.scale.x/0.92),1.36*(房屋.组.scale.y/0.92),1.34*(房屋.组.scale.z/0.92));房屋.组.add(灯光片);const 点灯=new THREE.PointLight(0xffb96b,0,4.5);点灯.position.set(0,1.45,1.8);房屋.组.add(点灯);窗灯组.push({材质:灯材质,灯:点灯});}
+    const 时钟=new THREE.Clock();let 总时间=0;let 上次时间=0;let 动画帧=0;const 减少动态=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;let 上次日照刷新=0;
+    function 更新真实天空(){
+      const now=new Date();const hour=now.getHours()+now.getMinutes()/60+now.getSeconds()/3600;const sun=计算台北日出日落(now);const sunrise=sun.日出,sunset=sun.日落;const dayLength=sunset-sunrise;const progress=(hour-sunrise)/dayLength;const daylight=hour>=sunrise&&hour<=sunset;
+      const dawn=(hour>=sunrise-0.85&&hour<sunrise+1.15);const dusk=(hour>=sunset-1.15&&hour<sunset+0.85);const twilight=dawn||dusk;const night=hour<sunrise-0.85||hour>sunset+0.85?1:0;const solar=Math.sin(Math.PI*Math.max(0,Math.min(1,progress)));const elevation=daylight?0.06+0.9*solar:-0.12;const angle=(hour-12)/12*Math.PI;const dir=new THREE.Vector3(Math.sin(angle),elevation,-Math.cos(angle)).normalize();
+      天空参数.uniforms.uSunHeight.value=elevation;天空参数.uniforms.uTwilight.value=twilight?Math.max(0.22,1-Math.min(Math.abs(hour-sunrise),Math.abs(hour-sunset))/1.35):0;天空参数.uniforms.uNight.value=night;天空参数.uniforms.uSunDir.value.copy(dir);天空参数.uniforms.uTime.value=hour*3600;
+      const warm=twilight?1:0;const fog=new THREE.Color(0xcbd8d0).lerp(new THREE.Color(0xe1a58b),warm*0.58).lerp(new THREE.Color(0x263449),night);场景.fog.color.copy(fog);
+      环境光.color.set(0xf0eadc).lerp(new THREE.Color(0x8792ad),night).lerp(new THREE.Color(0xf5c7a3),warm*0.18);环境光.groundColor.set(0x596b50).lerp(new THREE.Color(0x303844),night);环境光.intensity=THREE.MathUtils.lerp(1.15,0.62,night)*(twilight?0.94:1);
+      阳光.color.set(0xffe7c7).lerp(new THREE.Color(0xffa16c),warm*0.72).lerp(new THREE.Color(0x9ca8ce),night);阳光.intensity=night?0.32:THREE.MathUtils.lerp(0.55,2.05,Math.max(0,solar));阳光.position.set(dir.x*55,Math.max(4,dir.y*55),dir.z*55);渲染器.toneMappingExposure=THREE.MathUtils.lerp(0.82,1.05,1-night)*(twilight?0.96:1);
+      夜光.intensity=1.8*night;窗灯组.forEach(x=>{x.材质.opacity=0.95*night;x.灯.intensity=1.1*night;});微粒材质组.forEach((m,i)=>{m.opacity=THREE.MathUtils.lerp(i===0?0.22:0.12,0.95,night);m.color.set(night?0xffd778:(i===1?0xffffff:0xffedbd));});台北日照.日出=sunrise;台北日照.日落=sunset;台北日照.日间比例=progress;台北日照.夜间比例=night;设置云夜色(night);上次日照刷新=Date.now();
     }
-
-    const 时钟 = new THREE.Clock();
-    let 总时间 = 0;
-    let 上次时间 = 0;
-    let 动画帧 = 0;
-    const 减少动态 = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const 昼夜过渡 = {进度: 1, 起点: 0, 目标: 0};
-
-    function 更新昼夜() {
-      昼夜过渡.起点 = 昼夜过渡.进度 < 1 ? 昼夜过渡.目标 : (夜晚 ? 0 : 1);
-      昼夜过渡.目标 = 夜晚 ? 1 : 0;
-      昼夜过渡.进度 = 0;
-      document.getElementById("光线").textContent = 夜晚 ? "切换白昼" : "切换夜景";
-      设置云夜色(夜晚);
-    }
-    const 白昼天空 = new THREE.Color(0xcbd8d0), 夜景天空 = new THREE.Color(0x202b38);
-    const 白昼环境 = new THREE.Color(0xe5e2d5), 夜景环境 = new THREE.Color(0x8792ad);
-    const 白昼地面 = new THREE.Color(0x4b6048), 夜景地面 = new THREE.Color(0x303844);
-    const 白昼阳光 = new THREE.Color(0xffe9d0), 夜景阳光 = new THREE.Color(0x9ca8ce);
-    function 插值昼夜(经过) {
-      昼夜过渡.进度 = Math.min(1, 昼夜过渡.进度 + (减少动态 ? 1 : 经过 / 1.6));
-      const t = THREE.MathUtils.smoothstep(昼夜过渡.进度, 0, 1);
-      const 夜间比例 = THREE.MathUtils.lerp(昼夜过渡.起点, 昼夜过渡.目标, t);
-      场景.background.copy(白昼天空).lerp(夜景天空, 夜间比例);
-      场景.fog.color.copy(白昼天空).lerp(夜景天空, 夜间比例);
-      环境光.color.copy(白昼环境).lerp(夜景环境, 夜间比例);
-      环境光.groundColor.copy(白昼地面).lerp(夜景地面, 夜间比例);
-      环境光.intensity = THREE.MathUtils.lerp(1.15, 0.72, 夜间比例);
-      阳光.color.copy(白昼阳光).lerp(夜景阳光, 夜间比例);
-      阳光.intensity = THREE.MathUtils.lerp(2.0, 0.45, 夜间比例);
-      渲染器.toneMappingExposure = THREE.MathUtils.lerp(1.0, 0.82, 夜间比例);
-      夜光.intensity = 1.8 * 夜间比例;
-      窗灯组.forEach(项 => { 项.材质.opacity = 0.95 * 夜间比例; 项.灯.intensity = 1.1 * 夜间比例; });
-      微粒材质组.forEach((材质对象, i) => {
-        材质对象.opacity = THREE.MathUtils.lerp(i === 0 ? 0.42 : 0.22, 0.95, 夜间比例);
-        材质对象.color.set(夜晚 ? 0xffd778 : (i === 1 ? 0xffffff : 0xffedbd));
-      });
-    }
-    document.getElementById("光线").addEventListener("click", () => {
-      夜晚 = !夜晚;
-      更新昼夜();
-    });
     document.getElementById("复位").addEventListener("click", () => {
       相机.position.copy(初始相机);
       控制器.target.set(0, 2.4, 0);
@@ -798,7 +776,7 @@
       const 经过 = Math.min(时钟.getDelta(), 0.05);
       总时间 += 经过;
       控制器.update();
-      插值昼夜(经过);
+      if (Date.now() - 上次日照刷新 > 30000) 更新真实天空();
       更新树生长();
       更新云层();
       if (!减少动态) {
@@ -825,7 +803,7 @@
           项.网格.position.y = 项.中心Y + Math.sin(总时间 * 1.2 + 项.相位) * 0.38;
           项.网格.position.z = 项.中心Z + Math.cos(总时间 * 0.6 + 项.相位) * 0.42;
           const 呼吸 = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(总时间 * 2.4 + 项.相位));
-          项.网格.scale.setScalar(夜晚 ? 0.65 + 呼吸 : 0.6 + 呼吸 * 0.35);
+          项.网格.scale.setScalar(台北日照.夜间比例 > 0.5 ? 0.65 + 呼吸 : 0.6 + 呼吸 * 0.35);
         });
         落叶资料.forEach(项 => {
           项.网格.position.y = 1 + ((项.y - 总时间 * 项.速度 + 10) % 10);
@@ -868,7 +846,7 @@
         渲染器.render(场景, 相机);
       }
     });
-    更新昼夜();
+    更新真实天空();
     调整画面();
     动画();
   })();
