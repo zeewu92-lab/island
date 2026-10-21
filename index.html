@@ -199,58 +199,190 @@
       岛屿.add(苔);
     }
 
-    // 用不规则分叉枝干和多簇叶片构建树冠。
+    // ---------- 小工具 ----------
+    const 树随机 = (() => {            // 帶種子的隨機，每次載入同一棵樹
+      let a = 20261022;
+      return () => {
+        a |= 0; a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    })();
+    const 随范围 = (最小, 最大) => 最小 + 树随机() * (最大 - 最小);
+    const 夹 = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+    const 平滑 = (t) => { t = 夹(t); return t * t * (3 - 2 * t); };
+    const 回弹 = (t) => { t = 夹(t); const c1 = 1.25, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+    
+    // ---------- 參數（想調節奏改這裡）----------
+    const 树高 = 7.0;
+    const 树苗比例 = 0.17;            // 剛出土時樹幹高度占成樹的比例
+    const 生长总秒数 = 90;             // 從樹苗到大樹需要幾秒
+    const 树状态 = { 进度: 0, 速度: 1, 播放中: true, 上次: performance.now() };
+    
     const 树组 = new THREE.Group();
     树组.position.set(2.0, 0.25, -2.0);
     岛屿.add(树组);
-    function 创建枝干(起点, 终点, 底半径, 顶半径, 材质对象 = 木材质) {
-      const 方向 = new THREE.Vector3().subVectors(终点, 起点);
-      const 几何 = new THREE.CylinderGeometry(顶半径, 底半径, 方向.length(), 6, 1);
+    
+    // 樹幹高度比例隨進度線性成長（分支出現時間由此反推，確保枝一定長在已經長到的樹幹上）
+    const 树干比例 = (p) => 树苗比例 + (1 - 树苗比例) * 夹(p / 0.8);
+    const 高度起点 = (y) => 0.8 * 夹((y / 树高 - 树苗比例) / (1 - 树苗比例)) + 0.02;
+    
+    // 枝條：原點放在底部，之後只靠 scale 控制「長出來」
+    function 创建生长枝(起点, 终点, 底半径, 顶半径, 材质对象) {
+      const 向量 = new THREE.Vector3().subVectors(终点, 起点);
+      const 长 = 向量.length();
+      const 几何 = new THREE.CylinderGeometry(顶半径, 底半径, 长, 6, 1);
+      几何.translate(0, 长 / 2, 0);
       const 网格 = new THREE.Mesh(几何, 材质对象);
-      网格.position.copy(起点).add(终点).multiplyScalar(0.5);
-      网格.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), 方向.normalize());
+      网格.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), 向量.clone().normalize());
+      网格.position.copy(起点);
+      网格.scale.set(0.0001, 0.0001, 0.0001);
       网格.castShadow = true;
       树组.add(网格);
       return 网格;
     }
+    
+    // ---------- 樹幹 ----------
     const 树根 = new THREE.Vector3(0, 0, 0);
-    const 树顶 = new THREE.Vector3(0.35, 7.0, -0.15);
-    创建枝干(树根, 树顶, 0.62, 0.16);
-    const 树枝端点 = [];
+    const 树顶 = new THREE.Vector3(0.35, 树高, -0.15);
+    const 树干 = 创建生长枝(树根, 树顶, 0.62, 0.16, 木材质);
+    const 树干顶 = new THREE.Vector3();   // 目前樹幹頂端位置（每幀更新）
+    
+    // ---------- 枝條（主枝 + 次枝）----------
+    const 树枝组 = [];
+    const 叶簇组 = [];
     for (let i = 0; i < 10; i++) {
       const 高 = 2.0 + i * 0.43;
       const 角 = i * 2.399;
       const 长 = 1.0 + Math.sin(i * 1.7) * 0.42;
-      const 起点 = new THREE.Vector3(Math.sin(角) * 0.12, 高, Math.cos(角) * 0.12);
-      const 终点 = new THREE.Vector3(Math.sin(角) * 长, 高 + 0.9 + (i % 3) * 0.24, Math.cos(角) * 长);
-      创建枝干(起点, 终点, 0.22 - i * 0.009, 0.055);
-      树枝端点.push(终点);
-      const 次端 = new THREE.Vector3(终点.x * 1.35 + Math.cos(角) * 0.35, 终点.y + 0.6, 终点.z * 1.35 + Math.sin(角) * 0.35);
-      创建枝干(终点, 次端, 0.085, 0.025, 木亮材质);
-      树枝端点.push(次端);
-    }
-    const 叶簇组 = [];
-    for (let i = 0; i < 44; i++) {
-      const 高度 = 石头随机(4.6, 9.4);
-      const 角 = i * 2.399;
-      const 横向 = (高度 - 4.3) * 0.42 + 石头随机(-0.55, 0.55);
-      const 位置 = new THREE.Vector3(Math.cos(角) * 横向, 高度, Math.sin(角) * 横向);
-      const 大小 = 石头随机(0.58, 1.22) * (高度 > 8.4 ? 0.82 : 1);
-      const 叶簇 = new THREE.Mesh(new THREE.IcosahedronGeometry(大小, 1), 叶材质组[Math.floor(随机() * 叶材质组.length)]);
-      叶簇.position.copy(位置);
-      const 叶顶点 = 叶簇.geometry.attributes.position;
-      for (let v = 0; v < 叶顶点.count; v++) {
-        const vx = 叶顶点.getX(v), vy = 叶顶点.getY(v), vz = 叶顶点.getZ(v);
-        const 扰动 = 1 + 0.045 * Math.sin(vx * 5.1 + vz * 3.7) * Math.cos(vy * 4.2);
-        叶顶点.setXYZ(v, vx * 扰动, vy * (0.92 + 0.035 * Math.sin(vx * 3.4)), vz * 扰动);
+      const 起点 = 树根.clone().lerp(树顶, 高 / 树高);
+      const 终点 = new THREE.Vector3(
+        起点.x + Math.sin(角) * 长,
+        高 + 0.9 + (i % 3) * 0.24,
+        起点.z + Math.cos(角) * 长
+      );
+      const 主 = {
+        网格: 创建生长枝(起点, 终点, 0.22 - i * 0.009, 0.055, 木材质),
+        起点, 终点, 父: null, 生长: 0,
+        起始: 高度起点(高) + 0.01, 时长: 0.2, 终粗: 1
+      };
+      树枝组.push(主);
+    
+      const 次终点 = new THREE.Vector3(
+        终点.x + (终点.x - 起点.x) * 0.35 + Math.cos(角) * 0.35,
+        终点.y + 0.6,
+        终点.z + (终点.z - 起点.z) * 0.35 + Math.sin(角) * 0.35
+      );
+      const 次 = {
+        网格: 创建生长枝(终点, 次终点, 0.085, 0.025, 木亮材质),
+        起点: 终点, 终点: 次终点, 父: 主, 生长: 0,
+        起始: 主.起始 + 0.13, 时长: 0.18, 终粗: 1
+      };
+      树枝组.push(次);
+    
+      // 葉簇長在枝梢：主枝梢 2 簇、次枝梢 2 簇，等枝長到七成才冒出來
+      for (const [枝, 点] of [[主, 终点], [次, 次终点]]) {
+        for (let k = 0; k < 2; k++) {
+          const 位置 = 点.clone().add(new THREE.Vector3(随范围(-0.55, 0.55), 随范围(-0.1, 0.65), 随范围(-0.55, 0.55)));
+          const 大小 = 随范围(0.58, 1.1) * (位置.y > 8.4 ? 0.82 : 1);
+          const 网格 = new THREE.Mesh(new THREE.SphereGeometry(大小, 10, 8), 叶材质组[Math.floor(树随机() * 叶材质组.length)]);
+          网格.position.copy(位置);
+          const 目标 = new THREE.Vector3(1.0, 随范围(0.82, 1.18), 0.95);
+          网格.scale.set(0.0001, 0.0001, 0.0001);
+          网格.rotation.set(树随机(), 树随机() * Math.PI, 树随机());
+          网格.castShadow = true;
+          网格.receiveShadow = true;
+          树组.add(网格);
+          叶簇组.push({
+            网格, 相位: 树随机() * Math.PI * 2, 原位: 网格.rotation.z,
+            目标缩放: 目标, 起始: 枝.起始 + 枝.时长 * 0.7 + 随范围(0, 0.04), 时长: 0.16
+          });
+        }
       }
-      叶簇.geometry.computeVertexNormals();
-      叶簇.scale.set(1.0, 石头随机(0.78, 1.02), 0.88);
-      叶簇.rotation.set(随机(), 随机() * Math.PI, 随机());
-      叶簇.castShadow = true;
-      叶簇.receiveShadow = true;
-      树组.add(叶簇);
-      叶簇组.push({网格: 叶簇, 相位: 随机() * Math.PI * 2, 原位: 叶簇.rotation.z});
+    }
+    
+    // 樹冠頂部：成樹時補幾簇，讓樹梢收得圓一點
+    for (let i = 0; i < 6; i++) {
+      const 角 = i * 2.399;
+      const 位置 = new THREE.Vector3(Math.cos(角) * 随范围(0.3, 1.1), 随范围(7.2, 8.8), Math.sin(角) * 随范围(0.3, 1.1));
+      const 网格 = new THREE.Mesh(new THREE.SphereGeometry(随范围(0.6, 0.95), 10, 8), 叶材质组[i % 叶材质组.length]);
+      网格.position.copy(位置);
+      网格.scale.set(0.0001, 0.0001, 0.0001);
+      网格.castShadow = true;
+      树组.add(网格);
+      叶簇组.push({
+        网格, 相位: 树随机() * Math.PI * 2, 原位: 网格.rotation.z,
+        目标缩放: new THREE.Vector3(1, 随范围(0.85, 1.1), 0.95), 起始: 0.78 + i * 0.03, 时长: 0.18
+      });
+    }
+    
+    // ---------- 樹苗頂芽：永遠跟著樹幹頂端，一路從兩片嫩葉長成樹冠領頭簇 ----------
+    const 顶芽组 = [];
+    for (let i = 0; i < 3; i++) {
+      const 网格 = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), 叶材质组[(i + 1) % 叶材质组.length]);
+      网格.castShadow = true;
+      树组.add(网格);
+      顶芽组.push({ 网格, 偏移: new THREE.Vector3(Math.cos(i * 2.1) * 0.16, 0.08 + i * 0.05, Math.sin(i * 2.1) * 0.16) });
+    }
+    
+    // ---------- 葉色：嫩綠 → 深綠 ----------
+    const 成熟色 = 叶材质组.map(m => m.color.clone());
+    const 嫩叶色 = 成熟色.map(c => c.clone().lerp(new THREE.Color(0xd2e08c), 0.55));
+    
+    // ---------- 每幀更新 ----------
+    function 更新树生长() {
+      const 现在 = performance.now();
+      const 秒差 = Math.min(0.1, (现在 - 树状态.上次) / 1000);
+      树状态.上次 = 现在;
+      if (树状态.播放中) 树状态.进度 = Math.min(1, 树状态.进度 + 秒差 * 树状态.速度 / 生长总秒数);
+      const p = 树状态.进度;
+      const 时间 = 现在 / 1000;
+    
+      // 樹幹：長高 + 變粗
+      const f = 树干比例(p);
+      const 粗 = 0.22 + 0.78 * 平滑(p / 0.95);
+      树干.scale.set(粗, f, 粗);
+      树干顶.copy(树顶).multiplyScalar(f);
+    
+      // 枝條：先長長，再慢慢變粗；次枝跟著主枝梢移動
+      for (const 枝 of 树枝组) {
+        const g = 平滑((p - 枝.起始) / 枝.时长);
+        枝.生长 = g;
+        if (枝.父) 枝.网格.position.copy(枝.父.起点).lerp(枝.父.终点, 枝.父.生长);
+        枝.网格.visible = g > 0.001;
+        const 枝粗 = g * (0.5 + 0.5 * 平滑(p));
+        枝.网格.scale.set(枝粗, Math.max(g, 0.0001), 枝粗);
+      }
+    
+      // 葉簇：彈出式長大
+      for (const 叶 of 叶簇组) {
+        const g = 回弹((p - 叶.起始) / 叶.时长);
+        叶.网格.visible = g > 0.001;
+        叶.网格.scale.set(叶.目标缩放.x * g, 叶.目标缩放.y * g, 叶.目标缩放.z * g);
+      }
+    
+      // 頂芽：隨樹幹頂端上升，由小變大
+      const 芽大小 = 0.22 + 0.85 * 平滑(p / 0.85);
+      for (const 芽 of 顶芽组) {
+        芽.网格.position.copy(树干顶).add(芽.偏移.clone().multiplyScalar(0.4 + 芽大小));
+        芽.网格.scale.set(芽大小, 芽大小 * 0.85, 芽大小);
+      }
+    
+      // 葉色漸變
+      const 熟 = 平滑(p / 0.9);
+      叶材质组.forEach((m, i) => m.color.copy(嫩叶色[i]).lerp(成熟色[i], 熟));
+    
+      // 幼樹隨風晃得更明顯，成樹沉穩
+      const 摆幅 = 0.03 * (1.15 - p);
+      树组.rotation.z = Math.sin(时间 * 0.9) * 摆幅;
+      树组.rotation.x = Math.cos(时间 * 0.7) * 摆幅 * 0.6;
+    }
+    
+    function 重播树() {
+      树状态.进度 = 0;
+      树状态.播放中 = true;
+      树状态.上次 = performance.now();
     }
 
     // 程序化草丛与野花，控制数量以兼顾手机性能。
@@ -514,9 +646,9 @@
       总时间 += 经过;
       控制器.update();
       插值昼夜(经过);
+      更新树生长();
       if (!减少动态) {
         岛屿.position.y = Math.sin(总时间 * 0.48) * 0.22;
-        树组.rotation.z = Math.sin(总时间 * 0.8) * 0.012;
         叶簇组.forEach(项 => {
           项.网格.rotation.z = 项.原位 + Math.sin(总时间 * 1.25 + 项.相位) * 0.035;
         });
