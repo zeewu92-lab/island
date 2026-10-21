@@ -128,7 +128,14 @@
     const 屋顶材质 = [0x98594b, 0xb46c55, 0x804a42].map(色 => 材质(色));
     const 叶材质组 = [0x526e50, 0x64835a, 0x78946a, 0x91a77b].map(色 => 材质(色, 0.94, { side: THREE.DoubleSide }));
     const 苔材质 = 材质(0x687f5c);
-    const 石头随机 = (最小, 最大) => 最小 + Math.random() * (最大 - 最小);
+    let 随机种子 = 0x51a7e;
+    function 随机() {
+      let t = 随机种子 += 0x6D2B79F5;
+      t = Math.imul(t ^ t >>> 15, t | 1);
+      t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    }
+    const 石头随机 = (最小, 最大) => 最小 + 随机() * (最大 - 最小);
 
     // 用顶点扰动生成不规则岩层，避免岛体像规则倒圆锥。
     function 创建岩层(半径, 高度, 细分, 中心Y, 缩放 = 1) {
@@ -141,7 +148,7 @@
       }
       几何.rotateX(Math.PI);
       几何.computeVertexNormals();
-      const 岩石 = new THREE.Mesh(几何, 石材质组[Math.floor(Math.random() * 石材质组.length)]);
+      const 岩石 = new THREE.Mesh(几何, 石材质组[Math.floor(随机() * 石材质组.length)]);
       岩石.position.set(0, 中心Y, 0);
       岩石.scale.setScalar(缩放);
       岩石.castShadow = true;
@@ -173,18 +180,18 @@
     土边.scale.set(1, 0.98, 1);
     岛屿.add(土边);
     for (let i = 0; i < 46; i++) {
-      const 角 = Math.random() * Math.PI * 2;
+      const 角 = 随机() * Math.PI * 2;
       const 半径 = 石头随机(7.3, 8.0);
       const 石几何 = new THREE.DodecahedronGeometry(石头随机(0.12, 0.34), 0);
       const 石头 = new THREE.Mesh(石几何, 石材质组[i % 石材质组.length]);
       石头.position.set(Math.cos(角) * 半径, 石头随机(-0.45, 0.05), Math.sin(角) * 半径);
-      石头.rotation.set(Math.random(), Math.random() * 3, Math.random());
+      石头.rotation.set(随机(), 随机() * 3, 随机());
       石头.scale.set(1.2, 0.65, 0.9);
       石头.castShadow = true;
       岛屿.add(石头);
     }
     for (let i = 0; i < 22; i++) {
-      const 角 = Math.random() * Math.PI * 2;
+      const 角 = 随机() * Math.PI * 2;
       const 半径 = 石头随机(6.9, 7.7);
       const 苔 = new THREE.Mesh(new THREE.SphereGeometry(石头随机(0.16, 0.36), 7, 5), 苔材质);
       苔.position.set(Math.cos(角) * 半径, 石头随机(-2.8, -0.7), Math.sin(角) * 半径);
@@ -223,27 +230,34 @@
       树枝端点.push(次端);
     }
     const 叶簇组 = [];
-    for (let i = 0; i < 62; i++) {
+    for (let i = 0; i < 44; i++) {
       const 高度 = 石头随机(4.6, 9.4);
       const 角 = i * 2.399;
       const 横向 = (高度 - 4.3) * 0.42 + 石头随机(-0.55, 0.55);
       const 位置 = new THREE.Vector3(Math.cos(角) * 横向, 高度, Math.sin(角) * 横向);
       const 大小 = 石头随机(0.58, 1.22) * (高度 > 8.4 ? 0.82 : 1);
-      const 叶簇 = new THREE.Mesh(new THREE.SphereGeometry(大小, 10, 8), 叶材质组[Math.floor(Math.random() * 叶材质组.length)]);
+      const 叶簇 = new THREE.Mesh(new THREE.IcosahedronGeometry(大小, 1), 叶材质组[Math.floor(随机() * 叶材质组.length)]);
       叶簇.position.copy(位置);
-      叶簇.scale.set(1.0, 石头随机(0.82, 1.18), 0.95);
-      叶簇.rotation.set(Math.random(), Math.random() * Math.PI, Math.random());
+      const 叶顶点 = 叶簇.geometry.attributes.position;
+      for (let v = 0; v < 叶顶点.count; v++) {
+        const vx = 叶顶点.getX(v), vy = 叶顶点.getY(v), vz = 叶顶点.getZ(v);
+        const 扰动 = 1 + 0.045 * Math.sin(vx * 5.1 + vz * 3.7) * Math.cos(vy * 4.2);
+        叶顶点.setXYZ(v, vx * 扰动, vy * (0.92 + 0.035 * Math.sin(vx * 3.4)), vz * 扰动);
+      }
+      叶簇.geometry.computeVertexNormals();
+      叶簇.scale.set(1.0, 石头随机(0.78, 1.02), 0.88);
+      叶簇.rotation.set(随机(), 随机() * Math.PI, 随机());
       叶簇.castShadow = true;
       叶簇.receiveShadow = true;
       树组.add(叶簇);
-      叶簇组.push({网格: 叶簇, 相位: Math.random() * Math.PI * 2, 原位: 叶簇.rotation.z});
+      叶簇组.push({网格: 叶簇, 相位: 随机() * Math.PI * 2, 原位: 叶簇.rotation.z});
     }
 
     // 程序化草丛与野花，控制数量以兼顾手机性能。
     const 草丛材质组 = [材质(0x438849), 材质(0x76ad59), 材质(0x9abf69)];
     for (let i = 0; i < 155; i++) {
-      const 角 = Math.random() * Math.PI * 2;
-      const 半径 = Math.sqrt(Math.random()) * 7.2;
+      const 角 = 随机() * Math.PI * 2;
+      const 半径 = Math.sqrt(随机()) * 7.2;
       const x = Math.cos(角) * 半径, z = Math.sin(角) * 半径;
       if ((x - 2) ** 2 + (z + 2) ** 2 < 5.5 || (x + 2) ** 2 + (z - 2) ** 2 < 5) continue;
       const 高 = 石头随机(0.16, 0.48);
@@ -255,7 +269,7 @@
     }
     const 花材质组 = [材质(0xc9788c), 材质(0xe8b9c2), 材质(0xf3e8d8)];
     for (let i = 0; i < 20; i++) {
-      const 角 = Math.random() * Math.PI * 2, 半径 = 石头随机(3.1, 6.9);
+      const 角 = 随机() * Math.PI * 2, 半径 = 石头随机(3.1, 6.9);
       const x = Math.cos(角) * 半径, z = Math.sin(角) * 半径;
       const 花组 = new THREE.Group();
       const 花茎 = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.025, 0.28, 4), 草丛材质组[0]);
@@ -281,7 +295,7 @@
       墙.receiveShadow = true;
       房组.add(墙);
       const 屋顶几何 = new THREE.ConeGeometry(2.05, 1.35, 4);
-      const 屋顶 = new THREE.Mesh(屋顶几何, 屋顶材质[Math.floor(Math.random() * 屋顶材质.length)]);
+      const 屋顶 = new THREE.Mesh(屋顶几何, 屋顶材质[Math.floor(随机() * 屋顶材质.length)]);
       屋顶.position.y = 2.85;
       屋顶.rotation.y = Math.PI / 4;
       屋顶.castShadow = true;
@@ -305,7 +319,8 @@
         十字.position.set(窗X, 1.36, 1.34);
         房组.add(十字);
       }
-      for (let i = 0; i < 7; i++) {
+      /* 删除零散屋顶瓦片，避免屋顶细节显得杂乱。 */
+      for (let i = 0; i < 0; i++) {
         const 瓦片 = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.09, 0.56), 屋顶材质[i % 屋顶材质.length]);
         const 边 = i % 2 === 0 ? -1 : 1;
         瓦片.position.set(边 * (0.25 + (i % 3) * 0.36), 2.72 + (i % 3) * 0.19, -0.7 + Math.floor(i / 2) * 0.42);
@@ -387,22 +402,22 @@
       const 云 = new THREE.Group();
       for (let i = 0; i < 数量; i++) {
         const 半径 = 石头随机(1.15, 2.15);
-        const 团 = new THREE.Mesh(new THREE.SphereGeometry(半径, 16, 12), 云材质组[Math.floor(Math.random() * 云材质组.length)]);
+        const 团 = new THREE.Mesh(new THREE.SphereGeometry(半径, 10, 8), 云材质组[Math.floor(随机() * 云材质组.length)]);
         团.position.set(石头随机(-1.9, 1.9), 石头随机(-0.38, 0.38), 石头随机(-1.25, 1.25));
         团.scale.set(石头随机(1.05, 1.55), 石头随机(0.48, 0.72), 石头随机(0.9, 1.25));
         云.add(团);
       }
       云.position.set(x, y, z);
       云.scale.setScalar(大小);
-      云.userData = {相位: Math.random() * Math.PI * 2, 初始X: x, 速度: 石头随机(0.12, 0.34), 摇幅: 石头随机(0.12, 0.4)};
+      云.userData = {相位: 随机() * Math.PI * 2, 初始X: x, 初始Z: z, 速度: 石头随机(0.12, 0.34), 摇幅: 石头随机(0.12, 0.4)};
       云组.add(云);
       云团组.push(云);
     }
     for (let i = 0; i < 22; i++) {
-      const 角 = Math.random() * Math.PI * 2, 半径 = 石头随机(13, 34);
-      创建云团(Math.cos(角) * 半径, 石头随机(-15, -8), Math.sin(角) * 半径, 石头随机(0.8, 1.65), 5 + Math.floor(Math.random() * 5));
+      const 角 = 随机() * Math.PI * 2, 半径 = 石头随机(13, 34);
+      创建云团(Math.cos(角) * 半径, 石头随机(-15, -8), Math.sin(角) * 半径, 石头随机(0.8, 1.65), 5 + Math.floor(随机() * 5));
     }
-    for (let i = 0; i < 7; i++) 创建云团((i - 3) * 8, -7.6 + Math.random() * 1.2, -12 - Math.random() * 5, 石头随机(0.8, 1.25), 6);
+    for (let i = 0; i < 7; i++) 创建云团((i - 3) * 8, -7.6 + 随机() * 1.2, -12 - 随机() * 5, 石头随机(0.8, 1.25), 6);
 
     // 漂浮微粒、萤火虫与落叶，运动轨迹各自带有不同相位。
     const 微粒组 = new THREE.Group();
@@ -415,7 +430,7 @@
     ];
     for (let i = 0; i < 34; i++) {
       const 光点 = new THREE.Mesh(new THREE.SphereGeometry(石头随机(0.025, 0.065), 6, 5), 微粒材质组[i % 微粒材质组.length]);
-      const 资料 = {中心X: 石头随机(-9, 9), 中心Y: 石头随机(0.8, 10), 中心Z: 石头随机(-8, 8), 相位: Math.random() * Math.PI * 2, 速度: 石头随机(0.3, 0.9)};
+      const 资料 = {中心X: 石头随机(-9, 9), 中心Y: 石头随机(0.8, 10), 中心Z: 石头随机(-8, 8), 相位: 随机() * Math.PI * 2, 速度: 石头随机(0.3, 0.9)};
       光点.position.set(资料.中心X, 资料.中心Y, 资料.中心Z);
       微粒组.add(光点);
       微粒资料.push({网格: 光点, ...资料});
@@ -425,7 +440,7 @@
     const 落叶资料 = [];
     for (let i = 0; i < 12; i++) {
       const 叶片 = new THREE.Mesh(new THREE.PlaneGeometry(0.17, 0.28), 材质(i % 2 ? 0xc98c55 : 0xd8b56d, 0.9, { side: THREE.DoubleSide }));
-      const 资料 = {x: 石头随机(-8, 8), y: 石头随机(1, 11), z: 石头随机(-7, 7), 相位: Math.random() * 6.28, 速度: 石头随机(0.18, 0.42)};
+      const 资料 = {x: 石头随机(-8, 8), y: 石头随机(1, 11), z: 石头随机(-7, 7), 相位: 随机() * 6.28, 速度: 石头随机(0.18, 0.42)};
       叶片.position.set(资料.x, 资料.y, 资料.z);
       落叶组.add(叶片);
       落叶资料.push({网格: 叶片, ...资料});
@@ -452,25 +467,34 @@
     let 上次时间 = 0;
     let 动画帧 = 0;
     const 减少动态 = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const 昼夜过渡 = {进度: 1, 起点: 0, 目标: 0};
 
     function 更新昼夜() {
-      const 天空目标 = 夜晚 ? new THREE.Color(0x202b38) : new THREE.Color(0xcbd8d0);
-      场景.background.copy(天空目标);
-      场景.fog.color.copy(天空目标);
-      环境光.color.set(夜晚 ? 0x8792ad : 0xe5e2d5);
-      环境光.groundColor.set(夜晚 ? 0x303844 : 0x4b6048);
-      环境光.intensity = 夜晚 ? 0.72 : 1.35;
-      阳光.color.set(夜晚 ? 0x9ca8ce : 0xffe9d0);
-      阳光.intensity = 夜晚 ? 0.45 : 2.35;
-      渲染器.toneMappingExposure = 夜晚 ? 0.82 : 1.0;
-      夜光.intensity = 夜晚 ? 1.8 : 0;
-      窗灯组.forEach(项 => {
-        项.材质.opacity = 夜晚 ? 0.95 : 0;
-        项.灯.intensity = 夜晚 ? 1.1 : 0;
-      });
-      document.getElementById("光线").textContent = 夜晚 ? "切换白昼" : "昼夜切换";
+      昼夜过渡.起点 = 昼夜过渡.进度 < 1 ? 昼夜过渡.目标 : (夜晚 ? 0 : 1);
+      昼夜过渡.目标 = 夜晚 ? 1 : 0;
+      昼夜过渡.进度 = 0;
+      document.getElementById("光线").textContent = 夜晚 ? "切换白昼" : "切换夜景";
+    }
+    const 白昼天空 = new THREE.Color(0xcbd8d0), 夜景天空 = new THREE.Color(0x202b38);
+    const 白昼环境 = new THREE.Color(0xe5e2d5), 夜景环境 = new THREE.Color(0x8792ad);
+    const 白昼地面 = new THREE.Color(0x4b6048), 夜景地面 = new THREE.Color(0x303844);
+    const 白昼阳光 = new THREE.Color(0xffe9d0), 夜景阳光 = new THREE.Color(0x9ca8ce);
+    function 插值昼夜(经过) {
+      昼夜过渡.进度 = Math.min(1, 昼夜过渡.进度 + (减少动态 ? 1 : 经过 / 1.6));
+      const t = THREE.MathUtils.smoothstep(昼夜过渡.进度, 0, 1);
+      const 夜间比例 = THREE.MathUtils.lerp(昼夜过渡.起点, 昼夜过渡.目标, t);
+      场景.background.copy(白昼天空).lerp(夜景天空, 夜间比例);
+      场景.fog.color.copy(白昼天空).lerp(夜景天空, 夜间比例);
+      环境光.color.copy(白昼环境).lerp(夜景环境, 夜间比例);
+      环境光.groundColor.copy(白昼地面).lerp(夜景地面, 夜间比例);
+      环境光.intensity = THREE.MathUtils.lerp(1.15, 0.72, 夜间比例);
+      阳光.color.copy(白昼阳光).lerp(夜景阳光, 夜间比例);
+      阳光.intensity = THREE.MathUtils.lerp(2.0, 0.45, 夜间比例);
+      渲染器.toneMappingExposure = THREE.MathUtils.lerp(1.0, 0.82, 夜间比例);
+      夜光.intensity = 1.8 * 夜间比例;
+      窗灯组.forEach(项 => { 项.材质.opacity = 0.95 * 夜间比例; 项.灯.intensity = 1.1 * 夜间比例; });
       微粒材质组.forEach((材质对象, i) => {
-        材质对象.opacity = 夜晚 ? 0.95 : (i === 0 ? 0.42 : 0.22);
+        材质对象.opacity = THREE.MathUtils.lerp(i === 0 ? 0.42 : 0.22, 0.95, 夜间比例);
         材质对象.color.set(夜晚 ? 0xffd778 : (i === 1 ? 0xffffff : 0xffedbd));
       });
     }
@@ -489,6 +513,7 @@
       const 经过 = Math.min(时钟.getDelta(), 0.05);
       总时间 += 经过;
       控制器.update();
+      插值昼夜(经过);
       if (!减少动态) {
         岛屿.position.y = Math.sin(总时间 * 0.48) * 0.22;
         树组.rotation.z = Math.sin(总时间 * 0.8) * 0.012;
@@ -497,7 +522,7 @@
         });
         云团组.forEach(云 => {
           云.position.x = 云.userData.初始X + Math.sin(总时间 * 云.userData.速度 + 云.userData.相位) * 云.userData.摇幅;
-          云.position.z += Math.sin(总时间 * 0.12 + 云.userData.相位) * 0.0007;
+          云.position.z = 云.userData.初始Z + Math.sin(总时间 * 0.12 + 云.userData.相位) * 0.18;
           云.rotation.y = Math.sin(总时间 * 0.08 + 云.userData.相位) * 0.045;
         });
         波纹组.forEach((波纹, i) => {
