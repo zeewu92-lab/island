@@ -88,7 +88,7 @@
     const 台北日照={日出:6,日落:18,日间比例:0.5,夜间比例:0};
     function 计算台北日出日落(日期=new Date()){
       const 纬度=25.033,经度=121.5654,时区=8;
-      const n=Math.floor((Date.UTC(日期.getFullYear(),日期.getMonth(),日期.getDate())-Date.UTC(日期.getFullYear(),0,0))/86400000);
+      const n=Math.floor((Date.UTC(日期.getUTCFullYear(),日期.getUTCMonth(),日期.getUTCDate())-Date.UTC(日期.getUTCFullYear(),0,0))/86400000);
       const g=2*Math.PI/365*(n-1);
       const eq=229.18*(0.000075+0.001868*Math.cos(g)-0.032077*Math.sin(g)-0.014615*Math.cos(2*g)-0.040849*Math.sin(2*g));
       const dec=0.006918-0.399912*Math.cos(g)+0.070257*Math.sin(g)-0.006758*Math.cos(2*g)+0.000907*Math.sin(2*g)-0.002697*Math.cos(3*g)+0.00148*Math.sin(3*g);
