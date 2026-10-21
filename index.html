@@ -522,34 +522,186 @@
     瀑布组.add(水雾组);
 
     // 分层云团以多尺度软色块构成云海，靠漂移和呼吸缩放营造流动感。
+    // =====================================================================
+    // 雲層：雲海 + 中層流雲 + 高空薄雲
+    // 用法：
+    //  1. 刪掉原本從「分层云团以多尺度软色块…」到兩個 创建云团 的 for 迴圈結束的整段
+    //     （包含 云组、云材质组、云团组、创建云团）
+    //  2. 把本檔案貼在原處（场景、相机 之後）
+    //  3. 動畫迴圈每幀呼叫： 更新云层();
+    //     若原迴圈裡還有一段遍歷 云团组 的雲動畫，可直接刪掉（這裡保留了空的 云团组，不刪也不會報錯）
+    //  4. 昼夜切換時呼叫： 设置云夜色(夜晚);   // true / false，會自動平滑過渡
+    // 原理：用 canvas 畫出柔邊雲團貼圖，以 Sprite 取代球體，
+    //       沒有硬邊、沒有透明排序穿幫，手機上也輕。
+    // =====================================================================
+    
+    // ---------- 小工具（名稱加了「云」字頭，避免與別段程式重名）----------
+    const 云随机生成 = (种子) => () => {
+      种子 |= 0; 种子 = (种子 + 0x6D2B79F5) | 0;
+      let t = Math.imul(种子 ^ (种子 >>> 15), 1 | 种子);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const 云随机 = 云随机生成(77031);                 // 固定種子：每次載入同一片天空
+    const 云范围 = (a, b) => a + 云随机() * (b - a);
+    const 云夹 = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+    const 云平滑 = (t) => { t = 云夹(t); return t * t * (3 - 2 * t); };
+    
+    // ---------- 柔邊雲團貼圖（4 種，程式畫出來，不需外部圖片）----------
+    function 创建云贴图(种子) {
+      const 随机 = 云随机生成(种子);
+      const 画布 = document.createElement("canvas");
+      画布.width = 画布.height = 256;
+      const c = 画布.getContext("2d");
+      for (let i = 0; i < 15; i++) {
+        const x = 128 + (随机() - 0.5) * 112;
+        const y = 128 + (随机() - 0.5) * 54;
+        const r = 36 + 随机() * 40;
+        const g = c.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, "rgba(255,255,255,0.55)");
+        g.addColorStop(0.55, "rgba(255,255,255,0.22)");
+        g.addColorStop(1, "rgba(255,255,255,0)");
+        c.fillStyle = g;
+        c.fillRect(0, 0, 256, 256);
+      }
+      // 邊緣羽化，確保貼圖四周完全透明
+      c.globalCompositeOperation = "destination-in";
+      const 遮罩 = c.createRadialGradient(128, 128, 22, 128, 128, 128);
+      遮罩.addColorStop(0, "rgba(0,0,0,1)");
+      遮罩.addColorStop(1, "rgba(0,0,0,0)");
+      c.fillStyle = 遮罩;
+      c.fillRect(0, 0, 256, 256);
+      const 贴图 = new THREE.CanvasTexture(画布);
+      贴图.encoding = THREE.sRGBEncoding;
+      return 贴图;
+    }
+    const 云贴图组 = [101, 202, 303, 404].map(创建云贴图);
+    
+    // ---------- 參數 ----------
     const 云组 = new THREE.Group();
     场景.add(云组);
-    const 云材质组 = [
-      new THREE.MeshStandardMaterial({ color: 0xfaf7f0, roughness: 1, transparent: true, opacity: 0.76, depthWrite: false }),
-      new THREE.MeshStandardMaterial({ color: 0xe9e8df, roughness: 1, transparent: true, opacity: 0.68, depthWrite: false }),
-      new THREE.MeshStandardMaterial({ color: 0xcbd8cd, roughness: 1, transparent: true, opacity: 0.56, depthWrite: false })
+    const 云团组 = [];                                   // 相容舊程式：保留空陣列
+    const 云组列表 = [];
+    const 云状态 = {
+      夜: 0, 夜目标: 0, 上次: performance.now(),
+      风向: new THREE.Vector3(1, 0, 0.12).normalize(),
+      减少动态: !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches),
+      边界: 72                                           // 雲飄出這個範圍就從另一側回來
+    };
+    const 云昼色 = new THREE.Color(0xfaf7f0);
+    const 云夜色 = new THREE.Color(0x46557a);
+    const 云海昼色 = new THREE.Color(0xe4e9e2);          // 雲海底部略帶青灰，與霧色更貼
+    const 云海夜色 = new THREE.Color(0x35435f);
+    
+    // 數量依螢幕寬度縮放（手機約 65%）
+    const 密度 = innerWidth < 700 ? 0.65 : 1;
+    const 云层配置 = [
+      { 名: "云海", 数量: 15, y: [-13, -9],  半径: [9, 64],  簇: [6, 9], 尺寸: [7, 13],  速度: [0.10, 0.22], 不透明: 0.62, 扁: 0.50, 海: true },
+      { 名: "中层", 数量: 7,  y: [-6, -1.5], 半径: [24, 62], 簇: [4, 6], 尺寸: [5, 9],   速度: [0.20, 0.38], 不透明: 0.40, 扁: 0.42, 海: false },
+      { 名: "高层", 数量: 5,  y: [15, 22],   半径: [20, 70], 簇: [3, 5], 尺寸: [10, 18], 速度: [0.30, 0.50], 不透明: 0.20, 扁: 0.30, 海: false }
     ];
-    const 云团组 = [];
-    function 创建云团(x, y, z, 大小, 数量 = 7) {
+    
+    function 创建云(配置) {
       const 云 = new THREE.Group();
-      for (let i = 0; i < 数量; i++) {
-        const 半径 = 石头随机(1.15, 2.15);
-        const 团 = new THREE.Mesh(new THREE.SphereGeometry(半径, 10, 8), 云材质组[Math.floor(随机() * 云材质组.length)]);
-        团.position.set(石头随机(-1.9, 1.9), 石头随机(-0.38, 0.38), 石头随机(-1.25, 1.25));
-        团.scale.set(石头随机(1.05, 1.55), 石头随机(0.48, 0.72), 石头随机(0.9, 1.25));
-        云.add(团);
+      const 簇数 = Math.floor(云范围(配置.簇[0], 配置.簇[1] + 0.99));
+      const 基准尺寸 = 云范围(配置.尺寸[0], 配置.尺寸[1]);
+      const 精灵列表 = [];
+      for (let i = 0; i < 簇数; i++) {
+        const 材质 = new THREE.SpriteMaterial({
+          map: 云贴图组[Math.floor(云随机() * 云贴图组.length)],
+          transparent: true,
+          opacity: 配置.不透明,
+          depthWrite: false,
+          rotation: 云范围(-0.12, 0.12),
+          color: 0xffffff
+        });
+        const 精灵 = new THREE.Sprite(材质);
+        const 宽 = 基准尺寸 * 云范围(0.8, 1.3);
+        精灵.position.set(云范围(-0.9, 0.9) * 基准尺寸, 云范围(-0.12, 0.2) * 基准尺寸 * 配置.扁, 云范围(-0.5, 0.5) * 基准尺寸);
+        精灵.scale.set(宽, 宽 * 配置.扁 * 云范围(0.9, 1.15), 1);
+        // 雲底顏色略深、上方略亮，增加體積感
+        const 亮度 = 0.9 + 0.1 * (精灵.position.y / (基准尺寸 * 0.2) * 0.5 + 0.5);
+        云.add(精灵);
+        精灵列表.push({
+          精灵, 基础缩放: 精灵.scale.clone(), 基础不透明: 配置.不透明 * 云范围(0.75, 1),
+          亮度, 相位: 云随机() * Math.PI * 2
+        });
       }
-      云.position.set(x, y, z);
-      云.scale.setScalar(大小);
-      云.userData = {相位: 随机() * Math.PI * 2, 初始X: x, 初始Z: z, 速度: 石头随机(0.12, 0.34), 摇幅: 石头随机(0.12, 0.4)};
+      const 角 = 云随机() * Math.PI * 2;
+      const 半径 = 云范围(配置.半径[0], 配置.半径[1]);
+      云.position.set(Math.cos(角) * 半径, 云范围(配置.y[0], 配置.y[1]), Math.sin(角) * 半径);
       云组.add(云);
-      云团组.push(云);
+      云组列表.push({
+        组: 云, 精灵列表, 配置,
+        速度: 云范围(配置.速度[0], 配置.速度[1]),
+        相位: 云随机() * Math.PI * 2
+      });
     }
-    for (let i = 0; i < 22; i++) {
-      const 角 = 随机() * Math.PI * 2, 半径 = 石头随机(13, 34);
-      创建云团(Math.cos(角) * 半径, 石头随机(-15, -8), Math.sin(角) * 半径, 石头随机(0.8, 1.65), 5 + Math.floor(随机() * 5));
+    
+    for (const 配置 of 云层配置) {
+      const 数量 = Math.max(2, Math.round(配置.数量 * 密度));
+      for (let i = 0; i < 数量; i++) 创建云(配置);
     }
-    for (let i = 0; i < 7; i++) 创建云团((i - 3) * 8, -7.6 + 随机() * 1.2, -12 - 随机() * 5, 石头随机(0.8, 1.25), 6);
+    
+    // ---------- 昼夜顏色 ----------
+    function 设置云夜色(夜晚) {
+      云状态.夜目标 = typeof 夜晚 === "number" ? 云夹(夜晚) : (夜晚 ? 1 : 0);
+    }
+    function 应用云颜色() {
+      const 夜 = 云平滑(云状态.夜);
+      const 临时 = new THREE.Color();
+      for (const 云 of 云组列表) {
+        const 昼 = 云.配置.海 ? 云海昼色 : 云昼色;
+        const 暗 = 云.配置.海 ? 云海夜色 : 云夜色;
+        临时.copy(昼).lerp(暗, 夜);
+        for (const 项 of 云.精灵列表) {
+          项.精灵.material.color.copy(临时).multiplyScalar(项.亮度);
+        }
+      }
+    }
+    应用云颜色();
+    
+    // ---------- 每幀更新 ----------
+    function 更新云层() {
+      const 现在 = performance.now();
+      const 秒差 = Math.min(0.1, (现在 - 云状态.上次) / 1000);
+      云状态.上次 = 现在;
+      const 时间 = 现在 / 1000;
+      const 动态 = 云状态.减少动态 ? 0.25 : 1;
+    
+      // 夜晚顏色平滑過渡（約 1.6 秒）
+      if (Math.abs(云状态.夜目标 - 云状态.夜) > 0.001) {
+        const 步 = 秒差 / 1.6;
+        云状态.夜 += Math.sign(云状态.夜目标 - 云状态.夜) * Math.min(步, Math.abs(云状态.夜目标 - 云状态.夜));
+        应用云颜色();
+      }
+    
+      for (const 云 of 云组列表) {
+        const 组 = 云.组;
+        // 順風漂移 + 輕微上下浮動
+        组.position.addScaledVector(云状态.风向, 云.速度 * 秒差 * 动态);
+        组.position.y += Math.sin(时间 * 0.18 + 云.相位) * 0.0025 * 动态;
+        if (组.position.x > 云状态.边界) {
+          组.position.x = -云状态.边界;
+          组.position.z = 云范围(-云状态.边界, 云状态.边界) * 0.9;
+        }
+    
+        // 邊界淡入淡出：飄出範圍時漸隱，避免突然出現
+        const 边缘 = 1 - 云平滑((Math.abs(组.position.x) - (云状态.边界 - 16)) / 16);
+        // 相機靠近時淡出，避免大塊雲團糊住畫面
+        const 距离 = 组.position.distanceTo(相机.position);
+        const 近远 = 云平滑((距离 - 8) / 14);
+        // 夜晚整體略透明一點，星空/月光感更乾淨
+        const 夜透 = 1 - 0.18 * 云平滑(云状态.夜);
+    
+        for (const 项 of 云.精灵列表) {
+          const 呼吸 = 1 + Math.sin(时间 * 0.3 + 项.相位) * 0.04 * 动态;
+          项.精灵.scale.set(项.基础缩放.x * 呼吸, 项.基础缩放.y * (1 + (呼吸 - 1) * 0.6), 1);
+          项.精灵.material.opacity = 项.基础不透明 * 边缘 * 近远 * 夜透;
+        }
+        组.visible = 边缘 * 近远 > 0.01;
+      }
+    }
 
     // 漂浮微粒、萤火虫与落叶，运动轨迹各自带有不同相位。
     const 微粒组 = new THREE.Group();
@@ -606,6 +758,7 @@
       昼夜过渡.目标 = 夜晚 ? 1 : 0;
       昼夜过渡.进度 = 0;
       document.getElementById("光线").textContent = 夜晚 ? "切换白昼" : "切换夜景";
+      设置云夜色(夜晚);
     }
     const 白昼天空 = new THREE.Color(0xcbd8d0), 夜景天空 = new THREE.Color(0x202b38);
     const 白昼环境 = new THREE.Color(0xe5e2d5), 夜景环境 = new THREE.Color(0x8792ad);
@@ -647,15 +800,11 @@
       控制器.update();
       插值昼夜(经过);
       更新树生长();
+      更新云层();
       if (!减少动态) {
         岛屿.position.y = Math.sin(总时间 * 0.48) * 0.22;
         叶簇组.forEach(项 => {
           项.网格.rotation.z = 项.原位 + Math.sin(总时间 * 1.25 + 项.相位) * 0.035;
-        });
-        云团组.forEach(云 => {
-          云.position.x = 云.userData.初始X + Math.sin(总时间 * 云.userData.速度 + 云.userData.相位) * 云.userData.摇幅;
-          云.position.z = 云.userData.初始Z + Math.sin(总时间 * 0.12 + 云.userData.相位) * 0.18;
-          云.rotation.y = Math.sin(总时间 * 0.08 + 云.userData.相位) * 0.045;
         });
         波纹组.forEach((波纹, i) => {
           const 循环 = (总时间 * 0.22 + i / 3) % 1;
