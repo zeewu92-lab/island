@@ -75,7 +75,7 @@
     渲染器.setSize(innerWidth, innerHeight);
     渲染器.outputEncoding = THREE.sRGBEncoding;
     渲染器.toneMapping = THREE.ACESFilmicToneMapping;
-    渲染器.toneMappingExposure = 0.88;
+    渲染器.toneMappingExposure = 1.0;
     document.body.appendChild(渲染器.domElement);
     渲染器.domElement.setAttribute("aria-label", "可旋转观察的三维漂浮岛屿");
 
@@ -93,9 +93,9 @@
     控制器.target.set(0, 2.4, 0);
     控制器.rotateSpeed = 0.78;
 
-    const 环境光 = new THREE.HemisphereLight(0xe5e2d5, 0x4b6048, 0.92);
+    const 环境光 = new THREE.HemisphereLight(0xf0eadc, 0x596b50, 1.35);
     场景.add(环境光);
-    const 阳光 = new THREE.DirectionalLight(0xffe6c5, 1.55);
+    const 阳光 = new THREE.DirectionalLight(0xffe6c5, 2.35);
     阳光.position.set(-18, 30, 20);
     场景.add(阳光);
     阳光.castShadow = true;
@@ -451,10 +451,10 @@
       场景.fog.color.copy(天空目标);
       环境光.color.set(夜晚 ? 0x8792ad : 0xe5e2d5);
       环境光.groundColor.set(夜晚 ? 0x303844 : 0x4b6048);
-      环境光.intensity = 夜晚 ? 0.58 : 0.98;
+      环境光.intensity = 夜晚 ? 0.72 : 1.35;
       阳光.color.set(夜晚 ? 0x9ca8ce : 0xffe9d0);
-      阳光.intensity = 夜晚 ? 0.32 : 1.55;
-      渲染器.toneMappingExposure = 夜晚 ? 0.88 : 0.88;
+      阳光.intensity = 夜晚 ? 0.45 : 2.35;
+      渲染器.toneMappingExposure = 夜晚 ? 0.82 : 1.0;
       夜光.intensity = 夜晚 ? 1.8 : 0;
       窗灯组.forEach(项 => {
         项.材质.opacity = 夜晚 ? 0.95 : 0;
